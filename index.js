@@ -115,24 +115,25 @@ client.on('guildMemberAdd', async (member) => {
         }, 5 * 60 * 1000);
     }
 
-    // ── Bienvenue (Message Privé Uniquement) ───────────────────────────────────
-    // Donner le rôle Visiteur si il existe
+    // ── Bienvenue (Désactivé Temporairement) ───────────────────────────────────
+    /*
     const visitorRole = guild.roles.cache.find(r => r.name.toLowerCase().includes('visiteur'));
     if (visitorRole) await member.roles.add(visitorRole).catch(() => {});
 
-    // Envoyer le message de bienvenue en DM (invisible pour les autres)
     const embed = new EmbedBuilder()
         .setColor('#f48fb1')
         .setTitle(`🌸 Bienvenue sur UXDER, ${member.user.username} !`)
         .setDescription(`Hey <@${member.id}> ! On est super contents de t'accueillir parmi nous ! 🎉\n\n**Pour accéder au serveur :**\nRends-toi dans le salon <#1532912448384925767> (Bienvenue) et clique sur le bouton de vérification.`)
         .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
-        .addFields(
-            { name: '👥 Tu es le membre', value: `**#${guild.memberCount}**`, inline: true },
-        )
+        .addFields({ name: '👥 Tu es le membre', value: `**#${guild.memberCount}**`, inline: true })
         .setFooter({ text: 'UXDER Community' })
         .setTimestamp();
 
     await member.send({ embeds: [embed] }).catch(() => {});
+    */
+
+    // Nouveau système temporaire : tout le monde a accès directement
+    await member.roles.add(MEMBER_ROLE_ID).catch(() => {});
 });
 
 // ─── COMMANDES TEXTE (Admin seulement) ────────────────────────────────────────
