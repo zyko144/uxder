@@ -6,7 +6,15 @@ const {
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
+const express = require('express');
 
+// ─── SERVEUR WEB (Pour Render) ────────────────────────────────────────────────
+const app = express();
+app.get('/', (req, res) => res.send('UXDER Bot est en ligne H24 ! 🚀'));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Serveur Web démarré sur le port ${PORT} (Render OK)`));
+
+// ─── BASE DE DONNÉES ──────────────────────────────────────────────────────────
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
