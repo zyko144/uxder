@@ -12,7 +12,7 @@ const express = require('express');
 const app = express();
 app.get('/', (req, res) => res.send('UXDER Bot est en ligne H24 ! 🚀'));
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Serveur Web démarré sur le port ${PORT} (Render OK)`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Serveur Web démarré sur le port ${PORT} (Render OK)`));
 
 // ─── BASE DE DONNÉES ──────────────────────────────────────────────────────────
 const supabaseUrl = process.env.SUPABASE_URL;
