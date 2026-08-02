@@ -247,7 +247,14 @@ client.on('messageCreate', async (message) => {
     }
 
     // ─────────────── ANTI-LIEN / ANTI-PUB ─────────────────────────────────────
-    if (!isMod && LINK_REGEX.test(message.content)) {
+    const isPartnerChannel = message.channel.name && (
+        message.channel.name.toLowerCase().includes('partenaire') ||
+        message.channel.name.toLowerCase().includes('partner') ||
+        message.channel.name.toLowerCase().includes('pub') ||
+        message.channel.name.toLowerCase().includes('publicité')
+    );
+
+    if (!isMod && !isPartnerChannel && LINK_REGEX.test(message.content)) {
         await message.delete().catch(() => {});
         const warn = await message.channel.send({ embeds: [new EmbedBuilder()
             .setColor('#e74c3c')
