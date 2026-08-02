@@ -647,43 +647,74 @@ client.on('interactionCreate', async (interaction) => {
     // ── /giveaway ──────────────────────────────────────────────────────────────
     if (commandName === 'giveaway') {
         if (!isMod) return interaction.reply({ content: '❌ Tu n\'as pas la permission.', flags: MessageFlags.Ephemeral });
+
         const lot = interaction.options.getString('lot');
         const dureeMin = interaction.options.getInteger('duree');
         const nbGagnants = interaction.options.getInteger('gagnants') || 1;
+        const condition = interaction.options.getString('condition') || null;
         const endsAt = Date.now() + dureeMin * 60 * 1000;
 
         const giveawayChannel = guild.channels.cache.find(c => c.name === GIVEAWAYS_CHANNEL_NAME) || interaction.channel;
 
-        const embed = new EmbedBuilder()
-            .setColor('#f1c40f')
-            .setTitle('🎉 GIVEAWAY !')
-            .setDescription(`**${lot}**\n\n> 🎟️ Clique sur le bouton ci-dessous pour participer !\n> 🏆 Nombre de gagnant(s) : **${nbGagnants}**\n> ⏰ Fin : <t:${Math.floor(endsAt / 1000)}:R> (<t:${Math.floor(endsAt / 1000)}:T>)`)
-            .setFooter({ text: `Organisé par ${interaction.user.tag} • UXDER` })
-            .setTimestamp(endsAt);
+        const buildEmbed = (participants) => {
+            const participantList = participants.size > 0
+                ? [...participants].slice(0, 20).map(id => `<@${id}>`).join(', ') + (participants.size > 20 ? ` *+${participants.size - 20} autres...*` : '')
+                : '*Aucun participant pour l\'instant...*';
+
+            const desc = [
+                `🎁 **Lot :** ${lot}`,
+                `🏆 **Gagnant(s) :** ${nbGagnants}`,
+                `⏰ **Fin :** <t:${Math.floor(endsAt / 1000)}:R> (<t:${Math.floor(endsAt / 1000)}:T>)`,
+                condition ? `📋 **Condition :** ${condition}` : null,
+                `👥 **Participants (${participants.size}) :**\n${participantList}`,
+            ].filter(Boolean).join('\n');
+
+            return new EmbedBuilder()
+                .setColor('#f1c40f')
+                .setTitle('🎉 GIVEAWAY EN COURS !')
+                .setDescription(desc)
+                .setFooter({ text: `Organisé par ${interaction.user.tag} • UXDER` })
+                .setTimestamp(endsAt);
+        };
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('giveaway_enter')
                 .setLabel('🎉 Participer')
-                .setStyle(ButtonStyle.Primary)
+                .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId('giveaway_list')
+                .setLabel('👥 Voir les participants')
+                .setStyle(ButtonStyle.Secondary)
         );
 
-        const gMsg = await giveawayChannel.send({ embeds: [embed], components: [row] });
-        activeGiveaways.set(gMsg.id, { lot, nbGagnants, endsAt, participants: new Set(), messageId: gMsg.id, channelId: giveawayChannel.id });
+        const gMsg = await giveawayChannel.send({ embeds: [buildEmbed(new Set())], components: [row] });
+        activeGiveaways.set(gMsg.id, {
+            lot, nbGagnants, endsAt, condition,
+            participants: new Set(),
+            messageId: gMsg.id,
+            channelId: giveawayChannel.id,
+            buildEmbed,
+            gMsg
+        });
 
         await interaction.reply({ content: `✅ Giveaway lancé dans <#${giveawayChannel.id}> !`, flags: MessageFlags.Ephemeral });
 
-        // Tirage au sort automatique
+        // ─── Tirage au sort automatique ─────────────────────────────────────────
         setTimeout(async () => {
             const gData = activeGiveaways.get(gMsg.id);
             if (!gData) return;
             activeGiveaways.delete(gMsg.id);
 
             const participants = [...gData.participants];
-            const endEmbed = new EmbedBuilder().setColor('#95a5a6').setTitle('🎉 GIVEAWAY TERMINÉ').setTimestamp();
+
+            const endEmbed = new EmbedBuilder()
+                .setColor('#e74c3c')
+                .setTitle('🎉 GIVEAWAY TERMINÉ !')
+                .setTimestamp();
 
             if (participants.length === 0) {
-                endEmbed.setDescription(`**${lot}**\n\n> ❌ Aucun participant. Personne ne gagne.`);
+                endEmbed.setDescription(`🎁 **Lot :** ${lot}\n\n❌ Aucun participant. Personne ne gagne.`);
                 await gMsg.edit({ embeds: [endEmbed], components: [] });
                 return;
             }
@@ -696,9 +727,28 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             const winnerMentions = winners.map(id => `<@${id}>`).join(', ');
-            endEmbed.setDescription(`**${lot}**\n\n> 🏆 Gagnant(s) : ${winnerMentions}\n> 👥 Participants : ${participants.length}`);
+            const participantMentions = participants.slice(0, 20).map(id => `<@${id}>`).join(', ') + (participants.length > 20 ? ` *+${participants.length - 20} autres*` : '');
+
+            endEmbed
+                .setColor('#2ecc71')
+                .setDescription([
+                    `🎁 **Lot :** ${lot}`,
+                    condition ? `📋 **Condition :** ${condition}` : null,
+                    ``,
+                    `🏆 **Gagnant(s) :** ${winnerMentions}`,
+                    `👥 **Participants (${participants.length}) :** ${participantMentions}`,
+                ].filter(Boolean).join('\n'));
+
             await gMsg.edit({ embeds: [endEmbed], components: [] });
-            await giveawayChannel.send({ content: `🎊 Félicitations ${winnerMentions} ! Tu gagnes **${lot}** ! Contacte le Staff pour récupérer ton lot.` });
+
+            // Message d'annonce avec mention des gagnants
+            await giveawayChannel.send({
+                content: `🎊 **FÉLICITATIONS** ${winnerMentions} !\nTu remportes **${lot}** ! 🎁 Contacte le Staff pour récupérer ton lot.`,
+                embeds: [new EmbedBuilder()
+                    .setColor('#f1c40f')
+                    .setDescription(`> 🔗 [Voir le giveaway](${gMsg.url})\n> 📋 Organisé par <@${interaction.user.id}>`)
+                ]
+            });
 
         }, dureeMin * 60 * 1000);
     }
@@ -885,7 +935,7 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply({ content: '🎉 Bienvenue ! Tu as maintenant accès à tout le serveur.', flags: MessageFlags.Ephemeral });
     }
 
-    // ─── GIVEAWAY ─────────────────────────────────────────────────────────────
+    // ─── GIVEAWAY : Participer ────────────────────────────────────────────────
     if (interaction.isButton() && interaction.customId === 'giveaway_enter') {
         const gData = activeGiveaways.get(interaction.message.id);
         if (!gData) {
@@ -894,11 +944,33 @@ client.on('interactionCreate', async (interaction) => {
 
         if (gData.participants.has(interaction.user.id)) {
             gData.participants.delete(interaction.user.id);
+            // Mettre à jour l'embed avec le nouveau compte de participants
+            await gData.gMsg.edit({ embeds: [gData.buildEmbed(gData.participants)] }).catch(() => {});
             return interaction.reply({ content: '🚪 Tu as quitté le giveaway.', flags: MessageFlags.Ephemeral });
         } else {
             gData.participants.add(interaction.user.id);
+            // Mettre à jour l'embed avec le nouveau participant
+            await gData.gMsg.edit({ embeds: [gData.buildEmbed(gData.participants)] }).catch(() => {});
             return interaction.reply({ content: '🎉 Participation validée ! Bonne chance 🍀', flags: MessageFlags.Ephemeral });
         }
+    }
+
+    // ─── GIVEAWAY : Voir les participants ────────────────────────────────────
+    if (interaction.isButton() && interaction.customId === 'giveaway_list') {
+        const gData = activeGiveaways.get(interaction.message.id);
+        if (!gData) {
+            return interaction.reply({ content: '❌ Ce giveaway est déjà terminé !', flags: MessageFlags.Ephemeral });
+        }
+
+        if (gData.participants.size === 0) {
+            return interaction.reply({ content: '👥 Aucun participant pour l\'instant.', flags: MessageFlags.Ephemeral });
+        }
+
+        const list = [...gData.participants].map((id, i) => `**${i + 1}.** <@${id}>`).join('\n');
+        return interaction.reply({
+            content: `👥 **Participants du giveaway (${gData.participants.size}) :**\n${list}`,
+            flags: MessageFlags.Ephemeral
+        });
     }
 });
 

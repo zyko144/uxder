@@ -113,7 +113,8 @@ const commands = [
         options: [
             { name: 'lot', description: 'Ce que l\'on fait gagner', type: ApplicationCommandOptionType.String, required: true },
             { name: 'duree', description: 'Durée en minutes', type: ApplicationCommandOptionType.Integer, required: true, min_value: 1 },
-            { name: 'gagnants', description: 'Nombre de gagnants', type: ApplicationCommandOptionType.Integer, required: false, min_value: 1, max_value: 10 }
+            { name: 'gagnants', description: 'Nombre de gagnants', type: ApplicationCommandOptionType.Integer, required: false, min_value: 1, max_value: 10 },
+            { name: 'condition', description: 'Condition pour participer (ex: Avoir le rôle Nitro)', type: ApplicationCommandOptionType.String, required: false }
         ]
     },
     {
