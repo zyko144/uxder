@@ -647,35 +647,37 @@ client.on('interactionCreate', async (interaction) => {
     // ── /giveaway ──────────────────────────────────────────────────────────────
     if (commandName === 'giveaway') {
         if (!isMod) return interaction.reply({ content: '❌ Tu n\'as pas la permission.', flags: MessageFlags.Ephemeral });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-        const lot = interaction.options.getString('lot');
-        const dureeMin = interaction.options.getInteger('duree');
-        const nbGagnants = interaction.options.getInteger('gagnants') || 1;
-        const condition = interaction.options.getString('condition') || null;
-        const endsAt = Date.now() + dureeMin * 60 * 1000;
+        try {
+            const lot = interaction.options.getString('lot');
+            const dureeMin = interaction.options.getInteger('duree');
+            const nbGagnants = interaction.options.getInteger('gagnants') || 1;
+            const condition = interaction.options.getString('condition') || null;
+            const endsAt = Date.now() + dureeMin * 60 * 1000;
 
-        const giveawayChannel = guild.channels.cache.find(c => c.name === GIVEAWAYS_CHANNEL_NAME) || interaction.channel;
+            const giveawayChannel = guild.channels.cache.find(c => c.name === GIVEAWAYS_CHANNEL_NAME) || interaction.channel;
 
-        const buildEmbed = (participants) => {
-            const participantList = participants.size > 0
-                ? [...participants].slice(0, 20).map(id => `<@${id}>`).join(', ') + (participants.size > 20 ? ` *+${participants.size - 20} autres...*` : '')
-                : '*Aucun participant pour l\'instant...*';
+            const buildEmbed = (participants) => {
+                const participantList = participants.size > 0
+                    ? [...participants].slice(0, 20).map(id => `<@${id}>`).join(', ') + (participants.size > 20 ? ` *+${participants.size - 20} autres...*` : '')
+                    : '*Aucun participant pour l\'instant...*';
 
-            const desc = [
-                `🎁 **Lot :** ${lot}`,
-                `🏆 **Gagnant(s) :** ${nbGagnants}`,
-                `⏰ **Fin :** <t:${Math.floor(endsAt / 1000)}:R> (<t:${Math.floor(endsAt / 1000)}:T>)`,
-                condition ? `📋 **Condition :** ${condition}` : null,
-                `👥 **Participants (${participants.size}) :**\n${participantList}`,
-            ].filter(Boolean).join('\n');
+                const desc = [
+                    `🎁 **Lot :** ${lot}`,
+                    `🏆 **Gagnant(s) :** ${nbGagnants}`,
+                    `⏰ **Fin :** <t:${Math.floor(endsAt / 1000)}:R> (<t:${Math.floor(endsAt / 1000)}:T>)`,
+                    condition ? `📋 **Condition :** ${condition}` : null,
+                    `👥 **Participants (${participants.size}) :**\n${participantList}`,
+                ].filter(Boolean).join('\n');
 
-            return new EmbedBuilder()
-                .setColor('#f1c40f')
-                .setTitle('🎉 GIVEAWAY EN COURS !')
-                .setDescription(desc)
-                .setFooter({ text: `Organisé par ${interaction.user.tag} • UXDER` })
-                .setTimestamp(endsAt);
-        };
+                return new EmbedBuilder()
+                    .setColor('#f1c40f')
+                    .setTitle('🎉 GIVEAWAY EN COURS !')
+                    .setDescription(desc)
+                    .setFooter({ text: `Organisé par ${interaction.user.tag} • UXDER` })
+                    .setTimestamp(new Date(endsAt));
+            };
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -698,7 +700,7 @@ client.on('interactionCreate', async (interaction) => {
             gMsg
         });
 
-        await interaction.reply({ content: `✅ Giveaway lancé dans <#${giveawayChannel.id}> !`, flags: MessageFlags.Ephemeral });
+        await interaction.editReply({ content: `✅ Giveaway lancé dans <#${giveawayChannel.id}> !` });
 
         // ─── Tirage au sort automatique ─────────────────────────────────────────
         setTimeout(async () => {
@@ -751,7 +753,13 @@ client.on('interactionCreate', async (interaction) => {
             });
 
         }, dureeMin * 60 * 1000);
+        
+        } catch (error) {
+            console.error('Erreur lancement giveaway:', error);
+            await interaction.editReply({ content: '❌ Une erreur est survenue lors du lancement du giveaway.' }).catch(() => {});
+        }
     }
+
 
     // ── /setup_verify ──────────────────────────────────────────────────────────
     if (commandName === 'setup_verify') {
