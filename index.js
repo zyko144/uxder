@@ -676,10 +676,10 @@ client.on('interactionCreate', async (interaction) => {
                 ].filter(Boolean).join('\n');
 
                 return new EmbedBuilder()
-                    .setColor('#2b2d31') // Couleur de fond de Discord pour un effet "invisible" ultra moderne
+                    .setColor('#2b2d31')
                     .setTitle('🎉  G I V E A W A Y  🎉')
                     .setDescription(desc)
-                    .setImage('https://i.imgur.com/KqWkH0s.png') // Ligne séparatrice invisible ultra large pour forcer l'embed à être "X2"
+                    .setImage('https://files.catbox.moe/ukmrb3.png') // L'image Nitro du joueur
                     .setFooter({ text: `Lancé par ${interaction.user.tag}` })
                     .setTimestamp(new Date(endsAt));
             };
@@ -718,7 +718,7 @@ client.on('interactionCreate', async (interaction) => {
             const endEmbed = new EmbedBuilder()
                 .setColor('#2b2d31')
                 .setTitle('🎉  G I V E A W A Y  T E R M I N É  🎉')
-                .setImage('https://i.imgur.com/KqWkH0s.png')
+                .setImage('https://files.catbox.moe/ukmrb3.png')
                 .setTimestamp();
 
             if (participants.length === 0) {
