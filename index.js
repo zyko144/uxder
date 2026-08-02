@@ -660,22 +660,21 @@ client.on('interactionCreate', async (interaction) => {
 
             const buildEmbed = (participants) => {
                 const participantList = participants.size > 0
-                    ? [...participants].slice(0, 20).map(id => `<@${id}>`).join(', ') + (participants.size > 20 ? ` *+${participants.size - 20} autres...*` : '')
-                    : '*Aucun participant pour l\'instant...*';
-
-                const desc = [
-                    `🎁 **Lot :** ${lot}`,
-                    `🏆 **Gagnant(s) :** ${nbGagnants}`,
-                    `⏰ **Fin :** <t:${Math.floor(endsAt / 1000)}:R> (<t:${Math.floor(endsAt / 1000)}:T>)`,
-                    condition ? `📋 **Condition :** ${condition}` : null,
-                    `👥 **Participants (${participants.size}) :**\n${participantList}`,
-                ].filter(Boolean).join('\n');
+                    ? [...participants].slice(0, 15).map(id => `<@${id}>`).join(', ') + (participants.size > 15 ? `\n*et ${participants.size - 15} autres...*` : '')
+                    : '*(Personne pour le moment... sois le premier !)*';
 
                 return new EmbedBuilder()
-                    .setColor('#f1c40f')
-                    .setTitle('🎉 GIVEAWAY EN COURS !')
-                    .setDescription(desc)
-                    .setFooter({ text: `Organisé par ${interaction.user.tag} • UXDER` })
+                    .setColor('#FF007F') // Rose vif très premium
+                    .setTitle('🎉 **N O U V E A U   G I V E A W A Y** 🎉')
+                    .setDescription(`### Lot en jeu :\n# 🎁 ${lot}\n\n*Tente ta chance en cliquant sur le bouton ci-dessous !*\n**━━━━━━━━━━━━━━━━━━━━**`)
+                    .addFields(
+                        { name: '🏆 Gagnant(s)', value: `\`${nbGagnants}\``, inline: true },
+                        { name: '⏳ Temps restant', value: `<t:${Math.floor(endsAt / 1000)}:R>`, inline: true },
+                        { name: '📋 Condition', value: condition ? `⚠️ **${condition}**` : '✅ `Aucune (ouvert à tous)`', inline: false },
+                        { name: `👥 Participants (${participants.size})`, value: participantList, inline: false }
+                    )
+                    .setThumbnail('https://i.imgur.com/J1yR7Xh.gif') // Petit cadeau animé
+                    .setFooter({ text: `Lancé par ${interaction.user.tag} • UXDER`, iconURL: interaction.user.displayAvatarURL({ dynamic: true }) })
                     .setTimestamp(new Date(endsAt));
             };
 
@@ -712,11 +711,11 @@ client.on('interactionCreate', async (interaction) => {
 
             const endEmbed = new EmbedBuilder()
                 .setColor('#e74c3c')
-                .setTitle('🎉 GIVEAWAY TERMINÉ !')
+                .setTitle('🎉 **G I V E A W A Y   T E R M I N É** 🎉')
                 .setTimestamp();
 
             if (participants.length === 0) {
-                endEmbed.setDescription(`🎁 **Lot :** ${lot}\n\n❌ Aucun participant. Personne ne gagne.`);
+                endEmbed.setDescription(`### Lot en jeu :\n# 🎁 ${lot}\n\n**━━━━━━━━━━━━━━━━━━━━**\n❌ **Aucun participant.** Le lot n'a pas été remporté.`);
                 await gMsg.edit({ embeds: [endEmbed], components: [] });
                 return;
             }
@@ -728,18 +727,19 @@ client.on('interactionCreate', async (interaction) => {
                 winners.push(pool.splice(idx, 1)[0]);
             }
 
-            const winnerMentions = winners.map(id => `<@${id}>`).join(', ');
-            const participantMentions = participants.slice(0, 20).map(id => `<@${id}>`).join(', ') + (participants.length > 20 ? ` *+${participants.length - 20} autres*` : '');
+            const winnerMentions = winners.map(id => `<@${id}>`).join('\n> 🏆 ');
+            const participantMentions = participants.slice(0, 15).map(id => `<@${id}>`).join(', ') + (participants.length > 15 ? `\n*et ${participants.length - 15} autres...*` : '');
 
             endEmbed
-                .setColor('#2ecc71')
-                .setDescription([
-                    `🎁 **Lot :** ${lot}`,
-                    condition ? `📋 **Condition :** ${condition}` : null,
-                    ``,
-                    `🏆 **Gagnant(s) :** ${winnerMentions}`,
-                    `👥 **Participants (${participants.length}) :** ${participantMentions}`,
-                ].filter(Boolean).join('\n'));
+                .setColor('#2ecc71') // Vert pour le succès
+                .setDescription(`### Lot remporté :\n# 🎁 ${lot}\n\n**━━━━━━━━━━━━━━━━━━━━**`)
+                .addFields(
+                    { name: '🎉 Gagnant(s)', value: `> 🏆 ${winnerMentions}`, inline: false },
+                    { name: '📋 Condition requise', value: condition ? `⚠️ **${condition}**` : '✅ `Aucune (ouvert à tous)`', inline: false },
+                    { name: `👥 Participants totaux (${participants.length})`, value: participantMentions, inline: false }
+                )
+                .setThumbnail('https://i.imgur.com/J1yR7Xh.gif') // On garde le même gif
+                .setFooter({ text: `Tirage au sort terminé • UXDER` });
 
             await gMsg.edit({ embeds: [endEmbed], components: [] });
 
