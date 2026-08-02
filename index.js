@@ -756,7 +756,7 @@ client.on('interactionCreate', async (interaction) => {
         
         } catch (error) {
             console.error('Erreur lancement giveaway:', error);
-            await interaction.editReply({ content: '❌ Une erreur est survenue lors du lancement du giveaway.' }).catch(() => {});
+            await interaction.editReply({ content: `❌ Une erreur est survenue : ${error.message}` }).catch(() => {});
         }
     }
 
