@@ -248,10 +248,10 @@ client.on('messageCreate', async (message) => {
 
     // ─────────────── ANTI-LIEN / ANTI-PUB ─────────────────────────────────────
     const isPartnerChannel = message.channel.name && (
-        message.channel.name.toLowerCase().includes('partenaire') ||
-        message.channel.name.toLowerCase().includes('partner') ||
-        message.channel.name.toLowerCase().includes('pub') ||
-        message.channel.name.toLowerCase().includes('publicité')
+        message.channel.name.includes('partenariat') ||
+        message.channel.name.includes('partenaire') ||
+        message.channel.name.includes('partner') ||
+        message.channel.name.includes('pub')
     );
 
     if (!isMod && !isPartnerChannel && LINK_REGEX.test(message.content)) {
