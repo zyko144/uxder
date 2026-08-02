@@ -664,19 +664,22 @@ client.on('interactionCreate', async (interaction) => {
                     : '*(Aucun pour le moment)*';
 
                 const desc = [
-                    `🎁 **Lot :** ${lot}`,
-                    `🏆 **Gagnant(s) :** ${nbGagnants}`,
-                    `⏰ **Fin :** <t:${Math.floor(endsAt / 1000)}:R>`,
-                    condition ? `📋 **Condition :** ${condition}` : null,
+                    `# 🎁 ${lot}`,
                     ``,
-                    `👥 **Participants (${participants.size}) :**`,
+                    condition ? `## ⚠️ Condition :\n> **${condition}**\n` : '',
+                    `### ℹ️ Détails du tirage`,
+                    `> 🏆 **Gagnant(s) :** \`${nbGagnants}\``,
+                    `> ⏰ **Fin :** <t:${Math.floor(endsAt / 1000)}:R>`,
+                    ``,
+                    `### 👥 Participants (${participants.size})`,
                     participantList
                 ].filter(Boolean).join('\n');
 
                 return new EmbedBuilder()
-                    .setColor('#f1c40f')
-                    .setTitle('🎉 Giveaway !')
+                    .setColor('#2b2d31') // Couleur de fond de Discord pour un effet "invisible" ultra moderne
+                    .setTitle('🎉  G I V E A W A Y  🎉')
                     .setDescription(desc)
+                    .setImage('https://i.imgur.com/KqWkH0s.png') // Ligne séparatrice invisible ultra large pour forcer l'embed à être "X2"
                     .setFooter({ text: `Lancé par ${interaction.user.tag}` })
                     .setTimestamp(new Date(endsAt));
             };
@@ -713,12 +716,13 @@ client.on('interactionCreate', async (interaction) => {
             const participants = [...gData.participants];
 
             const endEmbed = new EmbedBuilder()
-                .setColor('#e74c3c')
-                .setTitle('🎉 Giveaway terminé !')
+                .setColor('#2b2d31')
+                .setTitle('🎉  G I V E A W A Y  T E R M I N É  🎉')
+                .setImage('https://i.imgur.com/KqWkH0s.png')
                 .setTimestamp();
 
             if (participants.length === 0) {
-                endEmbed.setDescription(`🎁 **Lot :** ${lot}\n\n❌ Aucun participant. Personne ne gagne.`);
+                endEmbed.setDescription(`# 🎁 ${lot}\n\n## ❌ Aucun participant.\nLe lot n'a pas été remporté.`);
                 await gMsg.edit({ embeds: [endEmbed], components: [] });
                 return;
             }
@@ -734,13 +738,15 @@ client.on('interactionCreate', async (interaction) => {
             const participantMentions = participants.slice(0, 15).map(id => `<@${id}>`).join(', ') + (participants.length > 15 ? `\n*et ${participants.length - 15} autres...*` : '');
 
             endEmbed
-                .setColor('#2ecc71')
+                .setColor('#2ecc71') // Vert pour montrer que c'est fini et gagné
                 .setDescription([
-                    `🎁 **Lot :** ${lot}`,
-                    condition ? `📋 **Condition :** ${condition}` : null,
+                    `# 🎁 ${lot}`,
                     ``,
-                    `🏆 **Gagnant(s) :** ${winnerMentions}`,
-                    `👥 **Participants (${participants.length}) :**`,
+                    condition ? `## ⚠️ Condition :\n> **${condition}**\n` : '',
+                    `### 🏆 Gagnant(s)`,
+                    `> 🎉 **${winnerMentions}**`,
+                    ``,
+                    `### 👥 Participants (${participants.length})`,
                     participantMentions
                 ].filter(Boolean).join('\n'));
 
