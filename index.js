@@ -42,25 +42,21 @@ const player = new Player(client);
 
 (async () => {
     const { DefaultExtractors } = require('@discord-player/extractor');
-    const { YoutubeiExtractor } = require('discord-player-youtubei');
+    const { YTDLPExtractor } = require('discord-player-ytdlp');
     
-    // 1. Enregistrer Youtubei pour bypasser les restrictions et trouver les liens YT
-    await player.extractors.register(YoutubeiExtractor, {
-        streamOptions: {
-            useClient: 'ANDROID' // Bypass throttling
-        }
-    });
+    // 1. Enregistrer YTDLP : ultra stable, télécharge la vraie source, ne coupe pas.
+    await player.extractors.register(YTDLPExtractor, {});
 
-    // 2. Charger les autres (Spotify, SoundCloud...) en utilisant Youtubei comme pont
+    // 2. Charger les autres (Spotify, SoundCloud...) en utilisant YTDLP comme pont
     await player.extractors.loadMulti(DefaultExtractors, {
         spotify: {
             clientId: process.env.SPOTIFY_CLIENT_ID,
             clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-            bridgeProvider: new YoutubeiExtractor()
+            bridgeProvider: new YTDLPExtractor()
         }
     });
     
-    console.log('✅ Extractors musicaux chargés : YouTubei | Spotify | SoundCloud');
+    console.log('✅ Extractors musicaux chargés : yt-dlp | Spotify | SoundCloud');
 })();
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
