@@ -74,27 +74,22 @@ async function ytSearchPlaylist(url) {
             const spotifyTracks = await getTracks(url);
             if (!spotifyTracks || !spotifyTracks.length) throw new Error('Playlist vide.');
             
-            const maxToLoad = Math.min(spotifyTracks.length, 30); // Limite à 30 pour la fluidité
+            // On ne cherche pas sur SoundCloud tout de suite pour éviter le rate-limit (spam IP).
+            // On ajoute juste les noms dans la file, le bot cherchera sur SC au moment de jouer la musique (lazy load).
+            const maxToLoad = Math.min(spotifyTracks.length, 100); 
             for (let i = 0; i < maxToLoad; i++) {
                 const t = spotifyTracks[i];
                 const query = `${t.artist || t.artists?.[0]?.name || ''} ${t.name}`;
-                try {
-                    const results = await scClient.search(query, 'track');
-                    if (results && results.length > 0) {
-                        const scTrack = await scClient.getSongInfo(results[0].url);
-                        if (scTrack) {
-                            tracks.push({
-                                title: cleanTitle(scTrack.title),
-                                url: scTrack.url,
-                                thumbnail: scTrack.thumbnail || null,
-                                duration: formatDuration(scTrack.duration / 1000),
-                                author: scTrack.author?.name || 'Inconnu',
-                                id: scTrack.id,
-                                isSC: true
-                            });
-                        }
-                    }
-                } catch(e) {}
+                tracks.push({
+                    title: cleanTitle(t.name),
+                    url: query, // On stocke la recherche dans l'URL temporairement
+                    thumbnail: null,
+                    duration: '?',
+                    author: t.artist || t.artists?.[0]?.name || 'Inconnu',
+                    id: 'spotify_lazy',
+                    isSC: true,
+                    isSearchQuery: true // Flag pour indiquer à playNext de faire la recherche SC
+                });
             }
         } catch(e) {
             throw new Error('Impossible de lire la playlist Spotify. ' + e.message);
@@ -133,11 +128,33 @@ async function playNext(guildId) {
         return;
     }
 
-    const track = q.queue.shift();
+    let track = q.queue.shift();
+    
+    // Lazy loading pour Spotify : si c'est une requête de recherche, on cherche sur SoundCloud maintenant
+    if (track.isSearchQuery) {
+        try {
+            const results = await scClient.search(track.url, 'track');
+            if (results && results.length > 0) {
+                track.url = results[0].url;
+                track.isSearchQuery = false;
+            } else {
+                throw new Error('Introuvable sur SoundCloud');
+            }
+        } catch (e) {
+            console.error('Erreur résolution SC lazy:', e.message);
+            if (q.textChannel) q.textChannel.send(`❌ Introuvable : ${track.title}, passage à la suivante.`).catch(() => {});
+            return playNext(guildId);
+        }
+    }
+
     q.current = track;
 
     try {
         const scTrackInfo = await scClient.getSongInfo(track.url);
+        // Mise à jour des infos manquantes pour le lazy loading
+        track.thumbnail = scTrackInfo.thumbnail || track.thumbnail;
+        track.duration = formatDuration(scTrackInfo.duration / 1000);
+        
         const rawStream = await scTrackInfo.downloadProgressive();
         const resource = createAudioResource(rawStream, { inputType: StreamType.Arbitrary });
         q.player.play(resource);
