@@ -38,22 +38,29 @@ const client = new Client({
 });
 
 // ─── DISCORD PLAYER ───────────────────────────────────────────────────────────
-const player = new Player(client, {
-    ytdlOptions: {
-        quality: 'highestaudio',
-        highWaterMark: 1 << 25
-    }
-});
+const player = new Player(client);
 
 (async () => {
-    // DefaultExtractors gère automatiquement le bridge Spotify -> YouTube de façon stable
-    await player.extractors.loadMulti(require('@discord-player/extractor').DefaultExtractors, {
-        spotify: {
-            clientId: process.env.SPOTIFY_CLIENT_ID,
-            clientSecret: process.env.SPOTIFY_CLIENT_SECRET
+    const { DefaultExtractors } = require('@discord-player/extractor');
+    const { YoutubeiExtractor } = require('discord-player-youtubei');
+    
+    // 1. Enregistrer Youtubei pour bypasser les restrictions et trouver les liens YT
+    await player.extractors.register(YoutubeiExtractor, {
+        streamOptions: {
+            useClient: 'ANDROID' // Bypass throttling
         }
     });
-    console.log('✅ Extractors musicaux chargés : YouTube | Spotify | SoundCloud (DefaultExtractors)');
+
+    // 2. Charger les autres (Spotify, SoundCloud...) en utilisant Youtubei comme pont
+    await player.extractors.loadMulti(DefaultExtractors, {
+        spotify: {
+            clientId: process.env.SPOTIFY_CLIENT_ID,
+            clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
+            bridgeProvider: new YoutubeiExtractor()
+        }
+    });
+    
+    console.log('✅ Extractors musicaux chargés : YouTubei | Spotify | SoundCloud');
 })();
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
