@@ -47,10 +47,10 @@ const player = new Player(client, {
 
 (async () => {
     const { DefaultExtractors } = require('@discord-player/extractor');
-    const { GoogleVideoExtractor } = require('discord-player-googlevideo');
+    const { YoutubeSabrExtractor } = require('discord-player-googlevideo');
     
     // 1. Enregistrer GoogleVideoExtractor (SABR Protocol) pour bypasser définitivement les IP Blocks Render.
-    await player.extractors.register(GoogleVideoExtractor, {});
+    await player.extractors.register(YoutubeSabrExtractor, {});
 
     // 2. Charger les autres (Spotify, SoundCloud...) en utilisant GoogleVideo comme pont officiel.
     await player.extractors.loadMulti(DefaultExtractors, {
