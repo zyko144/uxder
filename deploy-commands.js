@@ -184,6 +184,18 @@ const commands = [
                 max_value: 100
             }
         ]
+    },
+    {
+        name: 'playlist',
+        description: '🎶 Importer une playlist Spotify ou YouTube et la jouer',
+        options: [
+            {
+                name: 'url',
+                description: 'Lien de la playlist (Spotify ou YouTube)',
+                type: 3, // STRING
+                required: true
+            }
+        ]
     }
 ];
 

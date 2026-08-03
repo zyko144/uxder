@@ -4,19 +4,24 @@ const {
     ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, StringSelectMenuBuilder, AuditLogEvent, MessageFlags
 } = require('discord.js');
 const { Player } = require('discord-player');
-const { DefaultExtractors } = require('@discord-player/extractor');
+const { YoutubeiExtractor } = require('discord-player-youtubei');
+const { SpotifyExtractor, SoundCloudExtractor } = require('@discord-player/extractor');
+const ffmpegStatic = require('ffmpeg-static');
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
 
-// ─── SERVEUR WEB (Pour Render) ────────────────────────────────────────────────
+// Forcer le path ffmpeg pour Render
+process.env.FFMPEG_PATH = ffmpegStatic;
+
+// ─── SERVEUR WEB (Pour Render) ───────────────────────────────────────────────────────────────
 const app = express();
 app.get('/', (req, res) => res.send('UXDER Bot est en ligne H24 ! 🚀'));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => console.log(`Serveur Web démarré sur le port ${PORT} (Render OK)`));
 
-// ─── BASE DE DONNÉES ──────────────────────────────────────────────────────────
+// ─── BASE DE DONNÉES ────────────────────────────────────────────────────────────────────
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -35,15 +40,19 @@ const client = new Client({
 });
 
 // ─── DISCORD PLAYER ───────────────────────────────────────────────────────────
-const player = new Player(client, { ytdlOptions: { quality: 'highestaudio' } });
+const player = new Player(client);
 
 (async () => {
-    await player.extractors.loadMulti(DefaultExtractors, {
-        spotify: {
-            clientId: process.env.SPOTIFY_CLIENT_ID,
-            clientSecret: process.env.SPOTIFY_CLIENT_SECRET
-        }
+    // YoutubeiExtractor : bypass les restrictions YouTube (meilleur que ytdl)
+    await player.extractors.register(YoutubeiExtractor, {});
+    // Spotify : convertit les liens en recherche YouTube
+    await player.extractors.register(SpotifyExtractor, {
+        clientId: process.env.SPOTIFY_CLIENT_ID,
+        clientSecret: process.env.SPOTIFY_CLIENT_SECRET
     });
+    // SoundCloud
+    await player.extractors.register(SoundCloudExtractor, {});
+    console.log('✅ Extractors musicaux chargés : YouTube | Spotify | SoundCloud');
 })();
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
@@ -844,37 +853,40 @@ client.on('interactionCreate', async (interaction) => {
 
     // ── MUSIQUE ─────────────────────────────────────────────────────────────────
 
-    if (['play','skip','stop','pause','resume','queue','nowplaying','volume'].includes(commandName)) {
-        // Vérifier que l'utilisateur est dans un salon vocal
+    if (['play','skip','stop','pause','resume','queue','nowplaying','volume','playlist'].includes(commandName)) {
         const voiceChannel = member.voice.channel;
-        if (!voiceChannel && commandName === 'play') {
+        if (!voiceChannel && ['play','playlist'].includes(commandName)) {
             return interaction.reply({ content: '❌ Tu dois être dans un salon vocal pour lancer de la musique !', flags: MessageFlags.Ephemeral });
         }
 
         const queue = player.nodes.get(guild.id);
 
+        // Helper interne pour lancer la lecture
+        async function playQuery(query, requestedBy) {
+            const { track } = await player.play(voiceChannel, query, {
+                requestedBy,
+                nodeOptions: {
+                    metadata: { channel: interaction.channel },
+                    selfDeaf: false,  // Bot peut parler (pas sourdine)
+                    volume: 80,
+                    leaveOnEmpty: true,
+                    leaveOnEmptyCooldown: 30000,
+                    leaveOnEnd: false,
+                }
+            });
+            return track;
+        }
+
         // ─── /play ──────────────────────────────────────────────────────────
         if (commandName === 'play') {
             await interaction.deferReply();
             const query = interaction.options.getString('query');
-
             try {
-                const { track } = await player.play(voiceChannel, query, {
-                    nodeOptions: {
-                        metadata: { channel: interaction.channel },
-                        selfDeaf: true,
-                        volume: 80,
-                        leaveOnEmpty: true,
-                        leaveOnEmptyCooldown: 30000,
-                        leaveOnEnd: false,
-                    }
-                });
-
-                // Si c'est une playlist
+                const track = await playQuery(query, interaction.user);
                 const currentQueue = player.nodes.get(guild.id);
                 const queueSize = currentQueue?.tracks?.size || 0;
 
-                const embed = new EmbedBuilder()
+                await interaction.editReply({ embeds: [new EmbedBuilder()
                     .setColor('#5865f2')
                     .setTitle(queueSize > 0 ? '📋 Ajouté à la file d\'attente' : '🎵 Lecture lancée !')
                     .setDescription(`### [${track.title}](${track.url})`)
@@ -884,13 +896,50 @@ client.on('interactionCreate', async (interaction) => {
                         { name: '🔗 Source', value: track.source || 'YouTube', inline: true }
                     )
                     .setThumbnail(track.thumbnail)
-                    .setFooter({ text: `Demandé par ${interaction.user.username}` });
-
-                await interaction.editReply({ embeds: [embed] });
-
+                    .setFooter({ text: `Demandé par ${interaction.user.username}` })
+                ]});
             } catch (err) {
-                console.error('Erreur play:', err);
-                await interaction.editReply({ content: `❌ Impossible de lire \`${query}\`. Vérifie le titre ou le lien.` });
+                console.error('Erreur play:', err.message);
+                await interaction.editReply({ content: `❌ Erreur : \`${err.message}\`` });
+            }
+        }
+
+        // ─── /playlist (lien playlist Spotify/YouTube de n'importe qui) ────
+        if (commandName === 'playlist') {
+            await interaction.deferReply();
+            const url = interaction.options.getString('url');
+            try {
+                const result = await player.search(url, { requestedBy: interaction.user });
+                if (!result || result.isEmpty()) {
+                    return interaction.editReply({ content: '❌ Playlist introuvable. Vérifie que le lien est correct et que la playlist est publique !' });
+                }
+                const { tracks } = result;
+                const q = player.nodes.get(guild.id) || await player.nodes.create(guild, {
+                    metadata: { channel: interaction.channel },
+                    selfDeaf: false,
+                    volume: 80,
+                    leaveOnEmpty: true,
+                    leaveOnEmptyCooldown: 30000,
+                    leaveOnEnd: false,
+                });
+                if (!q.connection) await q.connect(voiceChannel);
+                for (const t of tracks) q.addTrack(t);
+                if (!q.node.isPlaying()) await q.node.play();
+
+                await interaction.editReply({ embeds: [new EmbedBuilder()
+                    .setColor('#1DB954') // Vert Spotify
+                    .setTitle('🎵 Playlist importée !')
+                    .setDescription(`**${tracks.length} musiques** ajoutées à la file d'attente !`)
+                    .addFields(
+                        { name: '📋 Playlist', value: result.playlist?.title || url, inline: false },
+                        { name: '🎵 Première musique', value: `[${tracks[0].title}](${tracks[0].url})`, inline: false }
+                    )
+                    .setThumbnail(result.playlist?.thumbnail || tracks[0].thumbnail)
+                    .setFooter({ text: `Importée par ${interaction.user.username}` })
+                ]});
+            } catch (err) {
+                console.error('Erreur playlist:', err.message);
+                await interaction.editReply({ content: `❌ Erreur : \`${err.message}\`` });
             }
         }
 
