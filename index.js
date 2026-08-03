@@ -53,17 +53,20 @@ async function ytSearchYT(query) {
     };
 }
 
-// Stream YouTube via yt-dlp (android client)
-function ytStreamYT(videoId) {
-    const proc = ytdlpExec.exec(`https://www.youtube.com/watch?v=${videoId}`, {
-        format: '18/best',
-        'no-playlist': true,
-        output: '-',
-        quiet: true,
-        'extractor-args': 'youtube:player_client=android'
-    });
-    proc.stderr.on('data', d => console.error('[YTStream Stderr]', d.toString()));
-    return proc.stdout;
+// Extrait l'URL CDN directe du flux audio (permet à ffmpeg de faire des requêtes HTTP Range pour lire le MP4 correctement)
+async function ytStreamYT(videoId) {
+    try {
+        const url = await ytdlpExec(`https://www.youtube.com/watch?v=${videoId}`, {
+            'get-url': true,
+            format: '18/best',
+            'no-playlist': true,
+            'extractor-args': 'youtube:player_client=android'
+        });
+        return url.trim();
+    } catch (err) {
+        console.error('[YTStream Error]', err.message);
+        throw err;
+    }
 }
 
 // Recherche via youtube-sr (contourne 429) : fonctionne pour nom de musique ET liens YouTube
@@ -165,8 +168,8 @@ async function playNext(guildId) {
     q.current = track;
 
     try {
-        const rawStream = ytStreamYT(track.id);
-        const resource = createAudioResource(rawStream, { inputType: StreamType.Arbitrary });
+        const directUrl = await ytStreamYT(track.id);
+        const resource = createAudioResource(directUrl, { inputType: StreamType.Arbitrary });
         q.player.play(resource);
     } catch(err) {
         console.error('Erreur stream:', err.message);
