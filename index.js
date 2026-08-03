@@ -38,32 +38,34 @@ const client = new Client({
 });
 
 // ─── DISCORD PLAYER ───────────────────────────────────────────────────────────
-const player = new Player(client);
+const player = new Player(client, {
+    ytdlOptions: {
+        quality: 'highestaudio',
+        highWaterMark: 1 << 25
+    }
+});
 
 (async () => {
     const { DefaultExtractors } = require('@discord-player/extractor');
-    const { YtDlpExtractor } = require('discord-player-ytdlp');
-    const path = require('path');
+    const { YoutubeiExtractor } = require('discord-player-youtubei');
     
-    // Résolution multi-os du binaire yt-dlp
-    const ytdlpBinary = path.resolve(
-        require.resolve('yt-dlp-exec'),
-        '../../bin/yt-dlp' + (process.platform === 'win32' ? '.exe' : '')
-    );
-    
-    // 1. Enregistrer YTDLP : ultra stable, télécharge la vraie source, ne coupe pas.
-    await player.extractors.register(YtDlpExtractor, { ytdlpPath: ytdlpBinary });
+    // 1. Enregistrer Youtubei en mode ANDROID pour bypasser les blocages d'IP sur Render (évite les chargements infinis)
+    await player.extractors.register(YoutubeiExtractor, {
+        streamOptions: {
+            useClient: 'ANDROID'
+        }
+    });
 
-    // 2. Charger les autres (Spotify, SoundCloud...) en utilisant YTDLP comme pont
+    // 2. Charger les autres (Spotify, SoundCloud...) en utilisant Youtubei comme pont
     await player.extractors.loadMulti(DefaultExtractors, {
         spotify: {
             clientId: process.env.SPOTIFY_CLIENT_ID,
             clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-            bridgeProvider: player.extractors.get('ytdlp-extractor')
+            bridgeProvider: player.extractors.get('com.retrouser955.discord-player.discord-player-youtubei')
         }
     });
     
-    console.log('✅ Extractors musicaux chargés : yt-dlp | Spotify | SoundCloud');
+    console.log('✅ Extractors musicaux chargés : Youtubei (ANDROID) | Spotify | SoundCloud');
 })();
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
