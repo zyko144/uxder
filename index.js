@@ -42,17 +42,24 @@ const player = new Player(client);
 
 (async () => {
     const { DefaultExtractors } = require('@discord-player/extractor');
-    const { YTDLPExtractor } = require('discord-player-ytdlp');
+    const { YtDlpExtractor } = require('discord-player-ytdlp');
+    const path = require('path');
+    
+    // Résolution multi-os du binaire yt-dlp
+    const ytdlpBinary = path.resolve(
+        require.resolve('yt-dlp-exec'),
+        '../../bin/yt-dlp' + (process.platform === 'win32' ? '.exe' : '')
+    );
     
     // 1. Enregistrer YTDLP : ultra stable, télécharge la vraie source, ne coupe pas.
-    await player.extractors.register(YTDLPExtractor, {});
+    await player.extractors.register(YtDlpExtractor, { ytdlpPath: ytdlpBinary });
 
     // 2. Charger les autres (Spotify, SoundCloud...) en utilisant YTDLP comme pont
     await player.extractors.loadMulti(DefaultExtractors, {
         spotify: {
             clientId: process.env.SPOTIFY_CLIENT_ID,
             clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-            bridgeProvider: new YTDLPExtractor()
+            bridgeProvider: player.extractors.get('ytdlp-extractor')
         }
     });
     
