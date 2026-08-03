@@ -3,6 +3,8 @@ const {
     Client, GatewayIntentBits, Partials, EmbedBuilder, 
     ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, StringSelectMenuBuilder, AuditLogEvent, MessageFlags
 } = require('discord.js');
+const { Player } = require('discord-player');
+const { DefaultExtractors } = require('@discord-player/extractor');
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
@@ -27,9 +29,22 @@ const client = new Client({
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildModeration,
         GatewayIntentBits.GuildMessageReactions,
+        GatewayIntentBits.GuildVoiceStates,
     ],
     partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
+
+// ─── DISCORD PLAYER ───────────────────────────────────────────────────────────
+const player = new Player(client, { ytdlOptions: { quality: 'highestaudio' } });
+
+(async () => {
+    await player.extractors.loadMulti(DefaultExtractors, {
+        spotify: {
+            clientId: process.env.SPOTIFY_CLIENT_ID,
+            clientSecret: process.env.SPOTIFY_CLIENT_SECRET
+        }
+    });
+})();
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const STAFF_ROLES = ['1532894464996016248', '1532894464123867197', '1532894463263899798']; // Owner, Manager, Mod
@@ -63,7 +78,33 @@ async function getLogsChannel(guild, name) {
 // ─── READY ────────────────────────────────────────────────────────────────────
 client.once('ready', () => {
     console.log(`🚀 UXDER Bot en ligne : ${client.user.tag}`);
-    console.log(`🛡️  Modules actifs : Anti-lien | Anti-spam | Anti-raid | Bienvenue | Giveaways | Vérification`);
+    console.log(`🛡️  Modules actifs : Anti-lien | Anti-spam | Anti-raid | Bienvenue | Giveaways | Vérification | Musique`);
+});
+
+// ─── PLAYER EVENTS ────────────────────────────────────────────────────────────
+player.events.on('playerStart', (queue, track) => {
+    queue.metadata.channel.send({ embeds: [
+        new EmbedBuilder()
+            .setColor('#5865f2')
+            .setTitle('🎵 En cours de lecture')
+            .setDescription(`### [${track.title}](${track.url})`)
+            .addFields(
+                { name: '👤 Artiste', value: track.author || 'Inconnu', inline: true },
+                { name: '⏱️ Durée', value: track.duration || '?', inline: true },
+                { name: '🔗 Source', value: track.source || 'YouTube', inline: true }
+            )
+            .setThumbnail(track.thumbnail)
+            .setFooter({ text: `Demandé par ${track.requestedBy?.username || 'quelqu\'un'}` })
+    ]}).catch(() => {});
+});
+
+player.events.on('emptyQueue', (queue) => {
+    queue.metadata.channel.send('✅ File d\'attente terminée ! Plus de musiques à jouer.').catch(() => {});
+});
+
+player.events.on('playerError', (queue, error) => {
+    console.error('Erreur player:', error);
+    queue.metadata.channel.send('❌ Erreur lors de la lecture. On passe à la suivante !').catch(() => {});
 });
 
 // Gestionnaire d'erreur global
@@ -801,8 +842,135 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
+    // ── MUSIQUE ─────────────────────────────────────────────────────────────────
+
+    if (['play','skip','stop','pause','resume','queue','nowplaying','volume'].includes(commandName)) {
+        // Vérifier que l'utilisateur est dans un salon vocal
+        const voiceChannel = member.voice.channel;
+        if (!voiceChannel && commandName === 'play') {
+            return interaction.reply({ content: '❌ Tu dois être dans un salon vocal pour lancer de la musique !', flags: MessageFlags.Ephemeral });
+        }
+
+        const queue = player.nodes.get(guild.id);
+
+        // ─── /play ──────────────────────────────────────────────────────────
+        if (commandName === 'play') {
+            await interaction.deferReply();
+            const query = interaction.options.getString('query');
+
+            try {
+                const { track } = await player.play(voiceChannel, query, {
+                    nodeOptions: {
+                        metadata: { channel: interaction.channel },
+                        selfDeaf: true,
+                        volume: 80,
+                        leaveOnEmpty: true,
+                        leaveOnEmptyCooldown: 30000,
+                        leaveOnEnd: false,
+                    }
+                });
+
+                // Si c'est une playlist
+                const currentQueue = player.nodes.get(guild.id);
+                const queueSize = currentQueue?.tracks?.size || 0;
+
+                const embed = new EmbedBuilder()
+                    .setColor('#5865f2')
+                    .setTitle(queueSize > 0 ? '📋 Ajouté à la file d\'attente' : '🎵 Lecture lancée !')
+                    .setDescription(`### [${track.title}](${track.url})`)
+                    .addFields(
+                        { name: '👤 Artiste', value: track.author || 'Inconnu', inline: true },
+                        { name: '⏱️ Durée', value: track.duration || '?', inline: true },
+                        { name: '🔗 Source', value: track.source || 'YouTube', inline: true }
+                    )
+                    .setThumbnail(track.thumbnail)
+                    .setFooter({ text: `Demandé par ${interaction.user.username}` });
+
+                await interaction.editReply({ embeds: [embed] });
+
+            } catch (err) {
+                console.error('Erreur play:', err);
+                await interaction.editReply({ content: `❌ Impossible de lire \`${query}\`. Vérifie le titre ou le lien.` });
+            }
+        }
+
+        // ─── /skip ──────────────────────────────────────────────────────────
+        if (commandName === 'skip') {
+            if (!queue) return interaction.reply({ content: '❌ Aucune musique en cours !', flags: MessageFlags.Ephemeral });
+            queue.node.skip();
+            await interaction.reply({ content: '⏭️ Musique skippée !' });
+        }
+
+        // ─── /stop ──────────────────────────────────────────────────────────
+        if (commandName === 'stop') {
+            if (!queue) return interaction.reply({ content: '❌ Aucune musique en cours !', flags: MessageFlags.Ephemeral });
+            queue.delete();
+            await interaction.reply({ content: '⏹️ Musique arrêtée et bot déconnecté !' });
+        }
+
+        // ─── /pause ─────────────────────────────────────────────────────────
+        if (commandName === 'pause') {
+            if (!queue) return interaction.reply({ content: '❌ Aucune musique en cours !', flags: MessageFlags.Ephemeral });
+            queue.node.pause();
+            await interaction.reply({ content: '⏸️ Musique mise en pause !' });
+        }
+
+        // ─── /resume ────────────────────────────────────────────────────────
+        if (commandName === 'resume') {
+            if (!queue) return interaction.reply({ content: '❌ Aucune musique en cours !', flags: MessageFlags.Ephemeral });
+            queue.node.resume();
+            await interaction.reply({ content: '▶️ Musique reprise !' });
+        }
+
+        // ─── /queue ─────────────────────────────────────────────────────────
+        if (commandName === 'queue') {
+            if (!queue || queue.isEmpty()) return interaction.reply({ content: '📋 La file d\'attente est vide !', flags: MessageFlags.Ephemeral });
+            const tracks = queue.tracks.toArray().slice(0, 10);
+            const current = queue.currentTrack;
+            const embed = new EmbedBuilder()
+                .setColor('#5865f2')
+                .setTitle('📋 File d\'attente')
+                .setDescription([
+                    current ? `**▶️ En cours :** [${current.title}](${current.url}) — ${current.duration}` : '',
+                    ``,
+                    tracks.length ? tracks.map((t, i) => `**${i+1}.** [${t.title}](${t.url}) — ${t.duration}`).join('\n') : '*Pas d\'autres musiques*',
+                    queue.tracks.size > 10 ? `\n*...et ${queue.tracks.size - 10} autres*` : ''
+                ].join('\n'));
+            await interaction.reply({ embeds: [embed] });
+        }
+
+        // ─── /nowplaying ────────────────────────────────────────────────────
+        if (commandName === 'nowplaying') {
+            if (!queue || !queue.currentTrack) return interaction.reply({ content: '❌ Aucune musique en cours !', flags: MessageFlags.Ephemeral });
+            const track = queue.currentTrack;
+            const progress = queue.node.createProgressBar();
+            const embed = new EmbedBuilder()
+                .setColor('#5865f2')
+                .setTitle('🎶 En cours de lecture')
+                .setDescription(`### [${track.title}](${track.url})\n\n${progress}`)
+                .addFields(
+                    { name: '👤 Artiste', value: track.author || 'Inconnu', inline: true },
+                    { name: '⏱️ Durée', value: track.duration || '?', inline: true },
+                    { name: '🔗 Source', value: track.source || 'YouTube', inline: true }
+                )
+                .setThumbnail(track.thumbnail)
+                .setFooter({ text: `Demandé par ${track.requestedBy?.username || 'quelqu\'un'}` });
+            await interaction.reply({ embeds: [embed] });
+        }
+
+        // ─── /volume ────────────────────────────────────────────────────────
+        if (commandName === 'volume') {
+            if (!queue) return interaction.reply({ content: '❌ Aucune musique en cours !', flags: MessageFlags.Ephemeral });
+            const niveau = interaction.options.getInteger('niveau');
+            queue.node.setVolume(niveau);
+            await interaction.reply({ content: `🔊 Volume réglé à **${niveau}%** !` });
+        }
+
+        return;
+    }
 
     // ── /setup_verify ──────────────────────────────────────────────────────────
+
     if (commandName === 'setup_verify') {
         if (!member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: '❌ Admin seulement.', flags: MessageFlags.Ephemeral });
         const bienvenueChannel = guild.channels.cache.find(c => c.name === BIENVENUE_CHANNEL_NAME);

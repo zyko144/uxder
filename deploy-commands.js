@@ -126,6 +126,64 @@ const commands = [
         name: 'setup_verify',
         description: '✅ Envoyer le panel de vérification dans #bienvenue (Admin)',
         options: []
+    },
+
+    // ── MUSIQUE ──────────────────────────────────────────────────────────────────
+    {
+        name: 'play',
+        description: '🎵 Jouer une musique (YouTube, Spotify, SoundCloud, lien playlist...)',
+        options: [
+            {
+                name: 'query',
+                description: 'Titre, artiste ou lien (YouTube / Spotify / SoundCloud)',
+                type: 3, // STRING
+                required: true
+            }
+        ]
+    },
+    {
+        name: 'skip',
+        description: '⏭️ Passer à la musique suivante',
+        options: []
+    },
+    {
+        name: 'stop',
+        description: '⏹️ Arrêter la musique et quitter le salon vocal',
+        options: []
+    },
+    {
+        name: 'pause',
+        description: '⏸️ Mettre en pause la musique',
+        options: []
+    },
+    {
+        name: 'resume',
+        description: '▶️ Reprendre la musique',
+        options: []
+    },
+    {
+        name: 'queue',
+        description: '📋 Voir la file d\'attente',
+        options: []
+    },
+    {
+        name: 'nowplaying',
+        description: '🎶 Voir la musique en cours de lecture',
+        options: []
+    },
+    {
+        name: 'volume',
+        description: '🔊 Régler le volume (0-100)',
+        options: [
+            {
+                name: 'niveau',
+                description: 'Volume entre 0 et 100',
+                type: 4, // INTEGER
+                required: true,
+                min_value: 0,
+                max_value: 100
+            }
+        ]
     }
 ];
 
