@@ -4,8 +4,6 @@ const {
     ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, StringSelectMenuBuilder, AuditLogEvent, MessageFlags
 } = require('discord.js');
 const { Player } = require('discord-player');
-const { YoutubeiExtractor } = require('discord-player-youtubei');
-const { SpotifyExtractor, SoundCloudExtractor } = require('@discord-player/extractor');
 const ffmpegStatic = require('ffmpeg-static');
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
@@ -40,19 +38,22 @@ const client = new Client({
 });
 
 // ─── DISCORD PLAYER ───────────────────────────────────────────────────────────
-const player = new Player(client);
+const player = new Player(client, {
+    ytdlOptions: {
+        quality: 'highestaudio',
+        highWaterMark: 1 << 25
+    }
+});
 
 (async () => {
-    // YoutubeiExtractor : bypass les restrictions YouTube (meilleur que ytdl)
-    await player.extractors.register(YoutubeiExtractor, {});
-    // Spotify : convertit les liens en recherche YouTube
-    await player.extractors.register(SpotifyExtractor, {
-        clientId: process.env.SPOTIFY_CLIENT_ID,
-        clientSecret: process.env.SPOTIFY_CLIENT_SECRET
+    // DefaultExtractors gère automatiquement le bridge Spotify -> YouTube de façon stable
+    await player.extractors.loadMulti(require('@discord-player/extractor').DefaultExtractors, {
+        spotify: {
+            clientId: process.env.SPOTIFY_CLIENT_ID,
+            clientSecret: process.env.SPOTIFY_CLIENT_SECRET
+        }
     });
-    // SoundCloud
-    await player.extractors.register(SoundCloudExtractor, {});
-    console.log('✅ Extractors musicaux chargés : YouTube | Spotify | SoundCloud');
+    console.log('✅ Extractors musicaux chargés : YouTube | Spotify | SoundCloud (DefaultExtractors)');
 })();
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
