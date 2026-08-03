@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const { spawn } = require('child_process');
+const ytdlpExec = require('yt-dlp-exec');
 const {
     joinVoiceChannel, createAudioPlayer, createAudioResource,
     AudioPlayerStatus, VoiceConnectionStatus, entersState, StreamType
@@ -17,52 +18,39 @@ const ffmpegStatic = require('ffmpeg-static');
 // Forcer le path ffmpeg pour Render
 process.env.FFMPEG_PATH = ffmpegStatic;
 
-// Chemin vers yt-dlp (embarqué dans node_modules)
-const YTDLP_PATH = process.platform === 'win32'
-    ? path.resolve(require.resolve('yt-dlp-exec'), '../../bin/yt-dlp.exe')
-    : path.resolve(require.resolve('yt-dlp-exec'), '../../bin/yt-dlp');
-
 // ─── MUSIC MANAGER ───────────────────────────────────────────────────────────
 // Une map par guild : { connection, player, queue: [], current, textChannel }
 const musicQueues = new Map();
 
-// Rechercher une vidéo YouTube via yt-dlp et retourner les métadonnées
+// Rechercher une vidéo YouTube via yt-dlp-exec (gère le binaire auto sur tous les OS)
 async function ytSearch(query) {
-    return new Promise((resolve, reject) => {
-        const isUrl = /^https?:\/\//.test(query);
-        const args = isUrl
-            ? ['--dump-json', '--no-playlist', '-q', query]
-            : ['--dump-json', '--no-playlist', '-q', `ytsearch1:${query}`];
-        const proc = spawn(YTDLP_PATH, args);
-        let out = '';
-        let err = '';
-        proc.stdout.on('data', d => out += d.toString());
-        proc.stderr.on('data', d => err += d.toString());
-        proc.on('close', code => {
-            if (!out.trim()) return reject(new Error('Aucun résultat trouvé.'));
-            try {
-                const info = JSON.parse(out.trim().split('\n')[0]);
-                resolve({
-                    title: info.title || 'Titre inconnu',
-                    url: `https://www.youtube.com/watch?v=${info.id}`,
-                    thumbnail: info.thumbnail || null,
-                    duration: info.duration ? formatDuration(info.duration) : '?',
-                    author: info.uploader || info.channel || 'Inconnu',
-                    id: info.id
-                });
-            } catch(e) { reject(new Error('Erreur de parsing des données YouTube.')); }
-        });
+    const isUrl = /^https?:\/\//.test(query);
+    const target = isUrl ? query : `ytsearch1:${query}`;
+    const info = await ytdlpExec(target, {
+        'dump-json': true,
+        'no-playlist': true,
+        quiet: true
     });
+    if (!info || !info.id) throw new Error('Aucun résultat trouvé.');
+    return {
+        title: info.title || 'Titre inconnu',
+        url: `https://www.youtube.com/watch?v=${info.id}`,
+        thumbnail: info.thumbnail || null,
+        duration: info.duration ? formatDuration(info.duration) : '?',
+        author: info.uploader || info.channel || 'Inconnu',
+        id: info.id
+    };
 }
 
-// Rechercher une playlist Spotify ou YouTube via yt-dlp
+// Rechercher une playlist Spotify ou YouTube via yt-dlp-exec
 async function ytSearchPlaylist(url) {
+    // Pour les playlists, on doit utiliser spawn car yt-dlp-exec ne supporte pas --flat-playlist en JSON multi-ligne
     return new Promise((resolve, reject) => {
-        const isSpotify = /spotify\.com\/playlist/.test(url);
-        const args = isSpotify
-            ? ['--flat-playlist', '--dump-json', '-q', url]
-            : ['--flat-playlist', '--dump-json', '--no-playlist', '-q', url];
-        const proc = spawn(YTDLP_PATH, args);
+        const proc = ytdlpExec.exec(url, {
+            'flat-playlist': true,
+            'dump-json': true,
+            quiet: true
+        });
         let out = '';
         proc.stdout.on('data', d => out += d.toString());
         proc.on('close', () => {
@@ -74,7 +62,7 @@ async function ytSearchPlaylist(url) {
                     const info = JSON.parse(line);
                     if (info.id) tracks.push({
                         title: info.title || 'Titre inconnu',
-                        url: info.url || `https://www.youtube.com/watch?v=${info.id}`,
+                        url: info.url?.startsWith('http') ? info.url : `https://www.youtube.com/watch?v=${info.id}`,
                         thumbnail: info.thumbnail || null,
                         duration: info.duration ? formatDuration(info.duration) : '?',
                         author: info.uploader || info.channel || 'Inconnu',
@@ -85,20 +73,19 @@ async function ytSearchPlaylist(url) {
             if (!tracks.length) return reject(new Error('Aucune piste trouvée dans la playlist.'));
             resolve(tracks);
         });
+        proc.on('error', e => reject(e));
     });
 }
 
-// Créer un stream audio depuis un ID YouTube via yt-dlp
+// Créer un stream audio depuis un ID YouTube via yt-dlp-exec
 function ytStream(videoId) {
-    const url = `https://www.youtube.com/watch?v=${videoId}`;
-    const proc = spawn(YTDLP_PATH, [
-        '-f', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
-        '--no-playlist',
-        '-o', '-',
-        '-q',
-        url
-    ]);
-    return proc.stdout; // stream Node.js directement pipeable dans ffmpeg
+    const proc = ytdlpExec.exec(`https://www.youtube.com/watch?v=${videoId}`, {
+        format: 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
+        'no-playlist': true,
+        output: '-',
+        quiet: true
+    });
+    return proc.stdout;
 }
 
 function formatDuration(seconds) {
