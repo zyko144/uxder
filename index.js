@@ -7,11 +7,10 @@ const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
-const { spawn } = require('child_process');
-const ytdlpExec = require('yt-dlp-exec');
-const YouTubeSR = require('youtube-sr').default;
+const SoundCloud = require('soundcloud-scraper');
+const scClient = new SoundCloud.Client();
 const fetch = require('isomorphic-unfetch');
-const { getTracks, getPreview } = require('spotify-url-info')(fetch);
+const { getTracks } = require('spotify-url-info')(fetch);
 const {
     joinVoiceChannel, createAudioPlayer, createAudioResource,
     AudioPlayerStatus, VoiceConnectionStatus, entersState, StreamType
@@ -26,30 +25,46 @@ process.env.FFMPEG_PATH = ffmpegStatic;
 const musicQueues = new Map();
 
 // Rechercher une vidéo YouTube via yt-dlp-exec (gère le binaire auto sur tous les OS)
-// Rechercher une vidéo YouTube via youtube-sr (plus rapide et anti-429)
+// Nettoyer le texte (les titres SoundCloud ont souvent des caractères mal encodés ou inutiles)
+function cleanTitle(title) {
+    if (!title) return 'Titre inconnu';
+    return title.replace(/Ã©/g, 'é').replace(/Ã¨/g, 'è').replace(/Ã /g, 'à').replace(/Ã¢/g, 'â').replace(/Ã¯/g, 'ï');
+}
+
+// Rechercher un morceau sur SoundCloud (Contournement total du blocage 429 de YouTube)
 async function ytSearch(query) {
-    const isUrl = /^https?:\/\//.test(query);
-    let video;
-    if (isUrl) {
-        video = await YouTubeSR.getVideo(query).catch(() => null);
-    } else {
-        const results = await YouTubeSR.search(query, { limit: 1 });
-        video = results[0];
+    // Si c'est un lien YouTube, on ne peut pas le lire directement. 
+    // On force l'utilisateur à faire une recherche par nom.
+    if (query.includes('youtube.com') || query.includes('youtu.be')) {
+        throw new Error('Les liens YouTube sont bloqués par la sécurité anti-bots. Cherche le nom de la musique directement (ex: /play Werenoi).');
     }
-    
-    if (!video || !video.id) throw new Error('Aucun résultat trouvé.');
-    
+
+    let urlToFetch = query;
+    let trackInfo = null;
+
+    if (query.includes('soundcloud.com')) {
+        trackInfo = await scClient.getSongInfo(query).catch(() => null);
+    } else {
+        const results = await scClient.search(query, 'track').catch(() => []);
+        if (!results || !results.length) throw new Error('Aucun résultat trouvé sur SoundCloud.');
+        urlToFetch = results[0].url;
+        trackInfo = await scClient.getSongInfo(urlToFetch).catch(() => null);
+    }
+
+    if (!trackInfo) throw new Error('Impossible de récupérer le morceau.');
+
     return {
-        title: video.title || 'Titre inconnu',
-        url: `https://www.youtube.com/watch?v=${video.id}`,
-        thumbnail: video.thumbnail?.url || null,
-        duration: video.durationFormatted || '?',
-        author: video.channel?.name || 'Inconnu',
-        id: video.id
+        title: cleanTitle(trackInfo.title),
+        url: trackInfo.url,
+        thumbnail: trackInfo.thumbnail || null,
+        duration: formatDuration(trackInfo.duration / 1000),
+        author: trackInfo.author?.name || 'Inconnu',
+        id: trackInfo.id,
+        isSC: true // flag pour savoir comment le streamer
     };
 }
 
-// Rechercher une playlist Spotify ou YouTube
+// Rechercher une playlist Spotify et la convertir vers SoundCloud
 async function ytSearchPlaylist(url) {
     const isSpotify = /spotify\.com\/(playlist|album)/.test(url);
     const tracks = [];
@@ -59,23 +74,25 @@ async function ytSearchPlaylist(url) {
             const spotifyTracks = await getTracks(url);
             if (!spotifyTracks || !spotifyTracks.length) throw new Error('Playlist vide.');
             
-            // Pour ne pas bloquer trop longtemps, on cherche les 5 premières tout de suite
-            // (Dans un bot de prod complexe, on ferait ça en asynchrone progressif)
-            const maxToLoad = Math.min(spotifyTracks.length, 50); // Limite à 50 pour éviter le spam API
+            const maxToLoad = Math.min(spotifyTracks.length, 30); // Limite à 30 pour la fluidité
             for (let i = 0; i < maxToLoad; i++) {
                 const t = spotifyTracks[i];
                 const query = `${t.artist || t.artists?.[0]?.name || ''} ${t.name}`;
                 try {
-                    const ytRes = await YouTubeSR.search(query, { limit: 1 });
-                    if (ytRes && ytRes[0]) {
-                        tracks.push({
-                            title: ytRes[0].title,
-                            url: `https://www.youtube.com/watch?v=${ytRes[0].id}`,
-                            thumbnail: ytRes[0].thumbnail?.url || null,
-                            duration: ytRes[0].durationFormatted || '?',
-                            author: ytRes[0].channel?.name || 'Inconnu',
-                            id: ytRes[0].id
-                        });
+                    const results = await scClient.search(query, 'track');
+                    if (results && results.length > 0) {
+                        const scTrack = await scClient.getSongInfo(results[0].url);
+                        if (scTrack) {
+                            tracks.push({
+                                title: cleanTitle(scTrack.title),
+                                url: scTrack.url,
+                                thumbnail: scTrack.thumbnail || null,
+                                duration: formatDuration(scTrack.duration / 1000),
+                                author: scTrack.author?.name || 'Inconnu',
+                                id: scTrack.id,
+                                isSC: true
+                            });
+                        }
                     }
                 } catch(e) {}
             }
@@ -83,42 +100,16 @@ async function ytSearchPlaylist(url) {
             throw new Error('Impossible de lire la playlist Spotify. ' + e.message);
         }
     } else {
-        try {
-            const playlist = await YouTubeSR.getPlaylist(url);
-            if (!playlist || !playlist.videos.length) throw new Error('Playlist vide.');
-            const maxToLoad = Math.min(playlist.videos.length, 50);
-            for (let i = 0; i < maxToLoad; i++) {
-                const v = playlist.videos[i];
-                tracks.push({
-                    title: v.title,
-                    url: `https://www.youtube.com/watch?v=${v.id}`,
-                    thumbnail: v.thumbnail?.url || null,
-                    duration: v.durationFormatted || '?',
-                    author: v.channel?.name || 'Inconnu',
-                    id: v.id
-                });
-            }
-        } catch (e) {
-            throw new Error('Impossible de lire la playlist YouTube. Assure-toi qu\'elle est publique.');
-        }
+        throw new Error('Les playlists YouTube sont bloquées. Utilise une playlist Spotify publique !');
     }
     
-    if (!tracks.length) throw new Error('Aucune piste trouvée dans la playlist.');
+    if (!tracks.length) throw new Error('Aucune piste trouvée.');
     return tracks;
 }
 
-// Créer un stream audio depuis un ID YouTube via yt-dlp-exec
-function ytStream(videoId) {
-    const proc = ytdlpExec.exec(`https://www.youtube.com/watch?v=${videoId}`, {
-        format: 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
-        'no-playlist': true,
-        output: '-',
-        quiet: true
-    });
-    return proc.stdout;
-}
-
+// Formatage de durée (ms -> mm:ss)
 function formatDuration(seconds) {
+    if (isNaN(seconds) || seconds < 0) return '0:00';
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2,'0')}`;
@@ -145,9 +136,16 @@ async function playNext(guildId) {
     const track = q.queue.shift();
     q.current = track;
 
-    const rawStream = ytStream(track.id || track.url.split('v=')[1]);
-    const resource = createAudioResource(rawStream, { inputType: StreamType.Arbitrary });
-    q.player.play(resource);
+    try {
+        const scTrackInfo = await scClient.getSongInfo(track.url);
+        const rawStream = await scTrackInfo.downloadProgressive();
+        const resource = createAudioResource(rawStream, { inputType: StreamType.Arbitrary });
+        q.player.play(resource);
+    } catch(err) {
+        console.error('Erreur stream SC:', err.message);
+        if (q.textChannel) q.textChannel.send(`❌ Erreur lecture : ${track.title}, passage à la suivante.`).catch(() => {});
+        return playNext(guildId);
+    }
 
     q.player.once(AudioPlayerStatus.Idle, () => playNext(guildId));
     q.player.once('error', err => {
