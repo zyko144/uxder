@@ -9,6 +9,8 @@ const path = require('path');
 const express = require('express');
 const playdl = require('play-dl');
 const ytdlpExec = require('yt-dlp-exec');
+const YouTube = require('youtube-sr').default;
+
 const fetch = require('isomorphic-unfetch');
 const { getTracks } = require('spotify-url-info')(fetch);
 const {
@@ -60,28 +62,34 @@ function ytStreamYT(videoId) {
         quiet: true,
         'extractor-args': 'youtube:player_client=android'
     });
+    proc.stderr.on('data', d => console.error('[YTStream Stderr]', d.toString()));
     return proc.stdout;
 }
 
-// Recherche via yt-dlp android : fonctionne pour nom de musique ET liens YouTube
+// Recherche via youtube-sr (contourne 429) : fonctionne pour nom de musique ET liens YouTube
 async function ytSearch(query) {
-    const isUrl = /^https?:\/\//.test(query);
-    const target = isUrl ? query : `ytsearch1:${query}`;
-    const info = await ytdlpExec(target, {
-        'dump-json': true,
-        'no-playlist': true,
-        quiet: true,
-        'extractor-args': 'youtube:player_client=android'
-    });
-    if (!info || !info.id) throw new Error('Aucun résultat trouvé.');
-    return {
-        title: info.title || 'Titre inconnu',
-        url: `https://www.youtube.com/watch?v=${info.id}`,
-        thumbnail: info.thumbnail || null,
-        duration: info.duration ? formatDuration(info.duration) : '?',
-        author: info.uploader || info.channel || 'Inconnu',
-        id: info.id
-    };
+    try {
+        let info;
+        if (/^https?:\/\//.test(query)) {
+            info = await YouTube.getVideo(query);
+        } else {
+            info = await YouTube.searchOne(query);
+        }
+        
+        if (!info || !info.id) throw new Error('Aucun résultat trouvé.');
+        
+        return {
+            title: info.title || 'Titre inconnu',
+            url: `https://www.youtube.com/watch?v=${info.id}`,
+            thumbnail: info.thumbnail?.url || null,
+            duration: info.durationFormatted || '?',
+            author: info.channel?.name || 'Inconnu',
+            id: info.id
+        };
+    } catch(err) {
+        console.error(`[YTSearch Error] query="${query}" :`, err.message);
+        throw err;
+    }
 }
 
 
