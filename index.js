@@ -7,8 +7,8 @@ const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
-const SoundCloud = require('soundcloud-scraper');
-const scClient = new SoundCloud.Client();
+const playdl = require('play-dl');
+const ytdlpExec = require('yt-dlp-exec');
 const fetch = require('isomorphic-unfetch');
 const { getTracks } = require('spotify-url-info')(fetch);
 const {
@@ -20,49 +20,85 @@ const ffmpegStatic = require('ffmpeg-static');
 // Forcer le path ffmpeg pour Render
 process.env.FFMPEG_PATH = ffmpegStatic;
 
+// Init play-dl avec un client_id SoundCloud auto
+let playdlReady = false;
+(async () => {
+    try {
+        const cid = await playdl.getFreeClientID();
+        await playdl.setToken({ soundcloud: { client_id: cid } });
+        playdlReady = true;
+        console.log('🎵 play-dl SoundCloud prêt (client_id auto)');
+    } catch(e) {
+        console.error('Erreur init play-dl:', e.message);
+    }
+})();
+
+
 // ─── MUSIC MANAGER ───────────────────────────────────────────────────────────
-// Une map par guild : { connection, player, queue: [], current, textChannel }
 const musicQueues = new Map();
 
-// Rechercher une vidéo YouTube via yt-dlp-exec (gère le binaire auto sur tous les OS)
-// Nettoyer le texte (les titres SoundCloud ont souvent des caractères mal encodés ou inutiles)
-function cleanTitle(title) {
-    if (!title) return 'Titre inconnu';
-    return title.replace(/Ã©/g, 'é').replace(/Ã¨/g, 'è').replace(/Ã /g, 'à').replace(/Ã¢/g, 'â').replace(/Ã¯/g, 'ï');
+function cleanTitle(t) {
+    if (!t) return 'Titre inconnu';
+    return t.replace(/Ã©/g, 'é').replace(/Ã¨/g, 'è').replace(/Ã /g, 'à').replace(/Ã¢/g, 'â').replace(/Ã¯/g, 'ï');
 }
 
-// Rechercher un morceau sur SoundCloud (Contournement total du blocage 429 de YouTube)
-async function ytSearch(query) {
-    // Si c'est un lien YouTube, on ne peut pas le lire directement. 
-    // On force l'utilisateur à faire une recherche par nom.
-    if (query.includes('youtube.com') || query.includes('youtu.be')) {
-        throw new Error('Les liens YouTube sont bloqués par la sécurité anti-bots. Cherche le nom de la musique directement (ex: /play Werenoi).');
-    }
-
-    let urlToFetch = query;
-    let trackInfo = null;
-
-    if (query.includes('soundcloud.com')) {
-        trackInfo = await scClient.getSongInfo(query).catch(() => null);
-    } else {
-        const results = await scClient.search(query, 'track').catch(() => []);
-        if (!results || !results.length) throw new Error('Aucun résultat trouvé sur SoundCloud.');
-        urlToFetch = results[0].url;
-        trackInfo = await scClient.getSongInfo(urlToFetch).catch(() => null);
-    }
-
-    if (!trackInfo) throw new Error('Impossible de récupérer le morceau.');
-
+// Recherche sur YouTube via yt-dlp (client android_embedded, bypass 429)
+async function ytSearchYT(query) {
+    const isUrl = /^https?:\/\//.test(query);
+    const target = isUrl ? query : `ytsearch1:${query}`;
+    const info = await ytdlpExec(target, {
+        'dump-json': true,
+        'no-playlist': true,
+        quiet: true,
+        'extractor-args': 'youtube:player_client=android_embedded'
+    });
+    if (!info || !info.id) throw new Error('Aucun résultat YouTube.');
     return {
-        title: cleanTitle(trackInfo.title),
-        url: trackInfo.url,
-        thumbnail: trackInfo.thumbnail || null,
-        duration: formatDuration(trackInfo.duration / 1000),
-        author: trackInfo.author?.name || 'Inconnu',
-        id: trackInfo.id,
-        isSC: true // flag pour savoir comment le streamer
+        title: info.title || 'Titre inconnu',
+        url: `https://www.youtube.com/watch?v=${info.id}`,
+        thumbnail: info.thumbnail || null,
+        duration: info.duration ? formatDuration(info.duration) : '?',
+        author: info.uploader || info.channel || 'Inconnu',
+        id: info.id,
+        isYT: true
     };
 }
+
+// Stream YouTube via yt-dlp (android_embedded client)
+function ytStreamYT(videoId) {
+    const proc = ytdlpExec.exec(`https://www.youtube.com/watch?v=${videoId}`, {
+        format: '18/bestaudio',
+        'no-playlist': true,
+        output: '-',
+        quiet: true,
+        'extractor-args': 'youtube:player_client=android_embedded'
+    });
+    return proc.stdout;
+}
+
+// Recherche multi-source : SoundCloud d'abord, YouTube en fallback
+async function ytSearch(query) {
+    // Lien YouTube direct
+    if (/youtube\.com|youtu\.be/.test(query)) {
+        return await ytSearchYT(query);
+    }
+    // Lien SoundCloud direct
+    if (query.includes('soundcloud.com')) {
+        const info = await playdl.soundcloud(query);
+        return { title: info.name, url: info.url, thumbnail: info.thumbnail || null, duration: formatDuration(info.durationInSec), author: info.user?.name || 'Inconnu', id: String(info.id), isSC: true };
+    }
+    // Recherche textuelle : essai SoundCloud puis YouTube si rien trouvé
+    try {
+        const scResults = await playdl.search(query, { source: { soundcloud: 'tracks' }, limit: 1 });
+        if (scResults && scResults.length) {
+            const t = scResults[0];
+            return { title: t.name, url: t.url, thumbnail: t.thumbnail || null, duration: formatDuration(t.durationInSec), author: t.user?.name || 'Inconnu', id: String(t.id), isSC: true };
+        }
+    } catch(_) {}
+    // Fallback YouTube
+    return await ytSearchYT(query);
+}
+
 
 // Rechercher une playlist Spotify et la convertir vers SoundCloud
 async function ytSearchPlaylist(url) {
@@ -117,7 +153,6 @@ async function playNext(guildId) {
     if (!q.queue.length) {
         q.current = null;
         if (q.textChannel) q.textChannel.send('✅ File d\'attente terminée !').catch(() => {});
-        // Déconnecter après 60s si rien ne joue
         setTimeout(() => {
             const cur = musicQueues.get(guildId);
             if (cur && !cur.current) {
@@ -130,19 +165,24 @@ async function playNext(guildId) {
 
     let track = q.queue.shift();
     
-    // Lazy loading pour Spotify : si c'est une requête de recherche, on cherche sur SoundCloud maintenant
+    // Lazy loading Spotify : cherche sur SoundCloud, fallback YouTube si introuvable
     if (track.isSearchQuery) {
         try {
-            const results = await scClient.search(track.url, 'track');
-            if (results && results.length > 0) {
-                track.url = results[0].url;
-                track.isSearchQuery = false;
-            } else {
-                throw new Error('Introuvable sur SoundCloud');
+            let resolved = null;
+            try {
+                const scRes = await playdl.search(track.url, { source: { soundcloud: 'tracks' }, limit: 1 });
+                if (scRes && scRes.length) {
+                    resolved = { url: scRes[0].url, thumbnail: scRes[0].thumbnail || null, duration: formatDuration(scRes[0].durationInSec), isSC: true };
+                }
+            } catch(_) {}
+            if (!resolved) {
+                const ytInfo = await ytSearchYT(track.url);
+                resolved = { url: ytInfo.url, thumbnail: ytInfo.thumbnail, duration: ytInfo.duration, isYT: true, id: ytInfo.id };
             }
+            track = { ...track, ...resolved, isSearchQuery: false };
         } catch (e) {
-            console.error('Erreur résolution SC lazy:', e.message);
-            if (q.textChannel) q.textChannel.send(`❌ Introuvable : ${track.title}, passage à la suivante.`).catch(() => {});
+            console.error('Erreur résolution lazy:', track.title, e.message);
+            if (q.textChannel) q.textChannel.send(`❌ Introuvable : **${track.title}**, passage à la suivante.`).catch(() => {});
             return playNext(guildId);
         }
     }
@@ -150,24 +190,30 @@ async function playNext(guildId) {
     q.current = track;
 
     try {
-        const scTrackInfo = await scClient.getSongInfo(track.url);
-        // Mise à jour des infos manquantes pour le lazy loading
-        track.thumbnail = scTrackInfo.thumbnail || track.thumbnail;
-        track.duration = formatDuration(scTrackInfo.duration / 1000);
-        
-        const rawStream = await scTrackInfo.downloadProgressive();
-        const resource = createAudioResource(rawStream, { inputType: StreamType.Arbitrary });
+        let resource;
+        if (track.isYT) {
+            // Stream YouTube via yt-dlp (android_embedded client)
+            const rawStream = ytStreamYT(track.id || track.url.split('v=')[1]);
+            resource = createAudioResource(rawStream, { inputType: StreamType.Arbitrary });
+        } else {
+            // Stream SoundCloud via play-dl (son complet, pas le preview 30s)
+            const pdlStream = await playdl.stream(track.url, { quality: 2 });
+            resource = createAudioResource(pdlStream.stream, { inputType: pdlStream.type });
+        }
         q.player.play(resource);
     } catch(err) {
-        console.error('Erreur stream SC:', err.message);
-        if (q.textChannel) q.textChannel.send(`❌ Erreur lecture : ${track.title}, passage à la suivante.`).catch(() => {});
+        console.error('Erreur stream:', err.message);
+        if (q.textChannel) q.textChannel.send(`❌ Erreur lecture : **${track.title}**, passage à la suivante.`).catch(() => {});
         return playNext(guildId);
     }
 
+    // Éviter les doublons d'écouteurs entre les pistes
+    q.player.removeAllListeners(AudioPlayerStatus.Idle);
+    q.player.removeAllListeners('error');
     q.player.once(AudioPlayerStatus.Idle, () => playNext(guildId));
     q.player.once('error', err => {
         console.error('Player error:', err.message);
-        if (q.textChannel) q.textChannel.send(`❌ Erreur lecture : ${track.title}, passage à la suivante.`).catch(() => {});
+        if (q.textChannel) q.textChannel.send(`❌ Erreur lecture : **${track.title}**, passage à la suivante.`).catch(() => {});
         playNext(guildId);
     });
 

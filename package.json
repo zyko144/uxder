@@ -32,6 +32,7 @@
     "play-dl": "^1.9.7",
     "soundcloud-scraper": "^5.0.3",
     "spotify-url-info": "^3.3.1",
+    "spotify-web-api-node": "^5.0.2",
     "youtube-dl-exec": "^3.1.9",
     "youtube-ext": "^1.1.25",
     "youtube-sr": "^4.3.12",
