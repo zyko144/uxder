@@ -6,10 +6,10 @@ const {
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
-const express = require('express');
 const playdl = require('play-dl');
 const ytdlpExec = require('yt-dlp-exec');
 const YouTube = require('youtube-sr').default;
+
 
 const fetch = require('isomorphic-unfetch');
 const { getTracks } = require('spotify-url-info')(fetch);
@@ -53,20 +53,23 @@ async function ytSearchYT(query) {
     };
 }
 
-// Extrait l'URL CDN directe du flux audio (permet à ffmpeg de faire des requêtes HTTP Range pour lire le MP4 correctement)
+// Extrait et télécharge l'audio localement (contourne les erreurs 403 CDN et problèmes de moov atom)
 async function ytStreamYT(videoId) {
-    try {
-        const url = await ytdlpExec(`https://www.youtube.com/watch?v=${videoId}`, {
-            'get-url': true,
+    return new Promise((resolve, reject) => {
+        const filePath = path.resolve(__dirname, `temp_${videoId}_${Date.now()}.mp4`);
+        const proc = ytdlpExec.exec(`https://www.youtube.com/watch?v=${videoId}`, {
             format: '18/best',
+            output: filePath,
             'no-playlist': true,
             'extractor-args': 'youtube:player_client=android'
         });
-        return url.trim();
-    } catch (err) {
-        console.error('[YTStream Error]', err.message);
-        throw err;
-    }
+        
+        proc.on('close', code => {
+            if (code === 0 && fs.existsSync(filePath)) resolve(filePath);
+            else reject(new Error('Erreur téléchargement yt-dlp. Code: ' + code));
+        });
+        proc.on('error', reject);
+    });
 }
 
 // Recherche via youtube-sr (contourne 429) : fonctionne pour nom de musique ET liens YouTube
@@ -142,11 +145,7 @@ async function playNext(guildId) {
     if (!q.queue.length) {
         q.current = null;
         if (q.textChannel) q.textChannel.send('✅ File d\'attente terminée !').catch(() => {});
-        setTimeout(() => {
-            const cur = musicQueues.get(guildId);
-            if (cur && !cur.current) { cur.connection?.destroy(); musicQueues.delete(guildId); }
-        }, 60000);
-        return;
+        return; // Plus de déconnexion automatique (le bot reste en vocal H24)
     }
 
     let track = q.queue.shift();
@@ -168,23 +167,35 @@ async function playNext(guildId) {
     q.current = track;
 
     try {
-        const directUrl = await ytStreamYT(track.id);
-        const resource = createAudioResource(directUrl, { inputType: StreamType.Arbitrary });
+        if (q.textChannel) q.textChannel.send(`⏳ Préparation de **${track.title}**...`).then(m => setTimeout(()=>m.delete().catch(()=>null), 3000)).catch(() => {});
+        const filePath = await ytStreamYT(track.id);
+        const resource = createAudioResource(filePath); // lit le fichier local
         q.player.play(resource);
+        
+        // Supprime le fichier local dès que la piste est terminée, skipée ou produit une erreur
+        const cleanup = () => {
+            if (fs.existsSync(filePath)) {
+                fs.unlink(filePath, e => e && console.error('Erreur supression:', e));
+            }
+        };
+        
+        q.player.removeAllListeners(AudioPlayerStatus.Idle);
+        q.player.removeAllListeners('error');
+        q.player.once(AudioPlayerStatus.Idle, () => {
+            cleanup();
+            playNext(guildId);
+        });
+        q.player.once('error', err => {
+            console.error('Player error:', err.message);
+            cleanup();
+            if (q.textChannel) q.textChannel.send(`❌ Erreur player : **${track.title}**, passage à la suivante.`).catch(() => {});
+            playNext(guildId);
+        });
     } catch(err) {
         console.error('Erreur stream:', err.message);
         if (q.textChannel) q.textChannel.send(`❌ Erreur lecture : **${track.title}**, passage à la suivante.`).catch(() => {});
         return playNext(guildId);
     }
-
-    q.player.removeAllListeners(AudioPlayerStatus.Idle);
-    q.player.removeAllListeners('error');
-    q.player.once(AudioPlayerStatus.Idle, () => playNext(guildId));
-    q.player.once('error', err => {
-        console.error('Player error:', err.message);
-        if (q.textChannel) q.textChannel.send(`❌ Erreur player : **${track.title}**, passage à la suivante.`).catch(() => {});
-        playNext(guildId);
-    });
 
     if (q.textChannel) {
         q.textChannel.send({ embeds: [
