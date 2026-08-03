@@ -991,5 +991,24 @@ client.on('interactionCreate', async (interaction) => {
     }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+// ─── REMERCIEMENTS AUTO POUR LES BOOSTS ────────────────────────────────────
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
+    // Si le membre n'avait pas le premium et l'a maintenant (nouveau boost)
+    if (!oldMember.premiumSince && newMember.premiumSince) {
+        const boostChannel = newMember.guild.channels.cache.find(c => c.name === '💎・boosts');
+        if (boostChannel) {
+            const embed = new EmbedBuilder()
+                .setColor('#ff73fa')
+                .setTitle('✨ 𝐍𝐎𝐔𝐕𝐄𝐀𝐔 𝐁𝐎𝐎𝐒𝐓 𝐃𝐄 𝐒𝐄𝐑𝐕𝐄𝐔𝐑 ✨')
+                .setDescription(`Merci infiniment <@${newMember.id}> pour ton boost ! 💖\nGrâce à toi, le serveur franchit un nouveau palier !`)
+                .setImage('https://i.imgur.com/KqWkH0s.png') // Ligne de séparation
+                .setThumbnail('https://files.catbox.moe/ukmrb3.png') // Icône nitro
+                .setFooter({ text: 'UXDER Community • Merci de ton soutien !' })
+                .setTimestamp();
+            
+            await boostChannel.send({ content: `<@${newMember.id}>`, embeds: [embed] }).catch(() => {});
+        }
+    }
+});
 
+client.login(process.env.DISCORD_TOKEN);
