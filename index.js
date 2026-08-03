@@ -420,6 +420,31 @@ client.on('interactionCreate', async (interaction) => {
     const isMod = isStaffMember(member) || member.permissions.has(PermissionFlagsBits.ManageMessages);
     const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
 
+    // ─── LOG AUTO DE TOUTES LES COMMANDES SLASH ─────────────────────────────
+    const logsChannel = await getLogsChannel(guild, LOGS_CHANNEL_NAME);
+    if (logsChannel) {
+        // Récupérer les options utilisées (ex: lot:Nitro duree:10)
+        const optionsStr = interaction.options?.data?.length > 0
+            ? interaction.options.data.map(o => `\`${o.name}: ${o.value}\``).join(' ')
+            : '*Aucune option*';
+
+        // Couleur spéciale pour /say (commande sensible)
+        const isSensitive = ['say', 'ban', 'kick', 'mute', 'warn', 'unban', 'unmute'].includes(commandName);
+
+        await logsChannel.send({ embeds: [new EmbedBuilder()
+            .setColor(isSensitive ? '#e74c3c' : '#5865f2')
+            .setTitle(`${isSensitive ? '⚠️' : '🔧'} Commande utilisée : /${commandName}`)
+            .addFields(
+                { name: '👤 Utilisateur', value: `<@${member.id}> (${member.user.tag})`, inline: true },
+                { name: '📍 Salon', value: `<#${interaction.channel.id}>`, inline: true },
+                { name: '⚙️ Options', value: optionsStr, inline: false }
+            )
+            .setFooter({ text: `ID: ${member.id}` })
+            .setTimestamp()
+        ]}).catch(() => {});
+    }
+
+
     // Helper : log une sanction dans #sanctions
     async function logSanction(title, color, fields) {
         const sanctionsChannel = await getLogsChannel(guild, SANCTIONS_CHANNEL_NAME);
