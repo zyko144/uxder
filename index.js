@@ -98,20 +98,22 @@ async function ytSearchPlaylist(url) {
     const tracks = [];
     for (let i = 0; i < maxToLoad; i++) {
         const t = spotifyTracks[i];
-        const query = `${t.artist || t.artists?.[0]?.name || ''} ${t.name}`.trim();
+        const query = `${t.artist || ''} ${t.name}`.trim();
         tracks.push({
             title: t.name || 'Titre inconnu',
-            url: query,          // stocke la requête de recherche temporairement
+            url: null,              // sera rempli au moment de jouer
+            searchQuery: query,     // requête de recherche YouTube
             thumbnail: null,
             duration: '?',
-            author: t.artist || t.artists?.[0]?.name || 'Inconnu',
+            author: t.artist || 'Inconnu',
             id: null,
-            isSearchQuery: true  // playNext ira chercher sur YT au bon moment
+            isSearchQuery: true     // playNext ira chercher sur YT au bon moment
         });
     }
     if (!tracks.length) throw new Error('Aucune piste trouvée dans la playlist.');
     return tracks;
 }
+
 
 
 // Formatage de durée (ms -> mm:ss)
@@ -141,10 +143,12 @@ async function playNext(guildId) {
     // Lazy loading Spotify : résoudre le vrai ID YouTube au moment de jouer
     if (track.isSearchQuery) {
         try {
-            const info = await ytSearch(track.url); // cherche sur YT via yt-dlp android_embedded
+            console.log(`[Music] Lazy search: ${track.searchQuery}`);
+            const info = await ytSearch(track.searchQuery);
             track = { ...track, ...info, isSearchQuery: false };
+            console.log(`[Music] Lazy OK: ${track.title} (${track.id})`);
         } catch(e) {
-            console.error('Lazy YT fail:', track.title, e.message);
+            console.error('[Music] Lazy YT fail:', track.title, e.message);
             if (q.textChannel) q.textChannel.send(`❌ Introuvable : **${track.title}**, passage à la suivante.`).catch(() => {});
             return playNext(guildId);
         }
@@ -1084,12 +1088,8 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.editReply({ embeds: [new EmbedBuilder()
                     .setColor('#1DB954')
                     .setTitle('🎵 Playlist importée !')
-                    .setDescription(`**${tracks.length} musiques** ajoutées à la file d'attente !`)
-                    .addFields(
-                        { name: '🎵 Première musique', value: `[${tracks[0].title}](${tracks[0].url})`, inline: false }
-                    )
-                    .setThumbnail(tracks[0].thumbnail)
-                    .setFooter({ text: `Importée par ${interaction.user.username}` })
+                    .setDescription(`**${tracks.length} musiques** ajoutées à la file d'attente !\n\n▶️ Première : **${tracks[0].title}** - ${tracks[0].author}`)
+                    .setFooter({ text: `Importée par ${interaction.user.username} • Les sons se chargent au fur et à mesure` })
                 ]});
             } catch (err) {
                 console.error('Erreur playlist:', err.message);
