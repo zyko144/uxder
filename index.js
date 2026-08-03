@@ -47,25 +47,21 @@ const player = new Player(client, {
 
 (async () => {
     const { DefaultExtractors } = require('@discord-player/extractor');
-    const { YoutubeiExtractor } = require('discord-player-youtubei');
+    const { GoogleVideoExtractor } = require('discord-player-googlevideo');
     
-    // 1. Enregistrer Youtubei en mode ANDROID pour bypasser les blocages d'IP sur Render (évite les chargements infinis)
-    await player.extractors.register(YoutubeiExtractor, {
-        streamOptions: {
-            useClient: 'ANDROID'
-        }
-    });
+    // 1. Enregistrer GoogleVideoExtractor (SABR Protocol) pour bypasser définitivement les IP Blocks Render.
+    await player.extractors.register(GoogleVideoExtractor, {});
 
-    // 2. Charger les autres (Spotify, SoundCloud...) en utilisant Youtubei comme pont
+    // 2. Charger les autres (Spotify, SoundCloud...) en utilisant GoogleVideo comme pont officiel.
     await player.extractors.loadMulti(DefaultExtractors, {
         spotify: {
             clientId: process.env.SPOTIFY_CLIENT_ID,
             clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-            bridgeProvider: player.extractors.get('com.retrouser955.discord-player.discord-player-youtubei')
+            bridgeProvider: player.extractors.get('com.github.xxczaki.youtube-sabr')
         }
     });
     
-    console.log('✅ Extractors musicaux chargés : Youtubei (ANDROID) | Spotify | SoundCloud');
+    console.log('✅ Extractors musicaux chargés : GoogleVideo (SABR) | Spotify | SoundCloud');
 })();
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
