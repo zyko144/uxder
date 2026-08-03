@@ -29,7 +29,7 @@ function cleanTitle(t) {
     return t.replace(/Ã©/g, 'é').replace(/Ã¨/g, 'è').replace(/Ã /g, 'à').replace(/Ã¢/g, 'â').replace(/Ã¯/g, 'ï');
 }
 
-// Recherche sur YouTube via yt-dlp (client android_embedded, bypass 429)
+// Recherche sur YouTube via yt-dlp (client android, bypass 429)
 async function ytSearchYT(query) {
     const isUrl = /^https?:\/\//.test(query);
     const target = isUrl ? query : `ytsearch1:${query}`;
@@ -37,7 +37,7 @@ async function ytSearchYT(query) {
         'dump-json': true,
         'no-playlist': true,
         quiet: true,
-        'extractor-args': 'youtube:player_client=android_embedded'
+        'extractor-args': 'youtube:player_client=android'
     });
     if (!info || !info.id) throw new Error('Aucun résultat YouTube.');
     return {
@@ -51,19 +51,19 @@ async function ytSearchYT(query) {
     };
 }
 
-// Stream YouTube via yt-dlp (android_embedded client)
+// Stream YouTube via yt-dlp (android client)
 function ytStreamYT(videoId) {
     const proc = ytdlpExec.exec(`https://www.youtube.com/watch?v=${videoId}`, {
-        format: '18/bestaudio',
+        format: '18/best',
         'no-playlist': true,
         output: '-',
         quiet: true,
-        'extractor-args': 'youtube:player_client=android_embedded'
+        'extractor-args': 'youtube:player_client=android'
     });
     return proc.stdout;
 }
 
-// Recherche via yt-dlp android_embedded : fonctionne pour nom de musique ET liens YouTube
+// Recherche via yt-dlp android : fonctionne pour nom de musique ET liens YouTube
 async function ytSearch(query) {
     const isUrl = /^https?:\/\//.test(query);
     const target = isUrl ? query : `ytsearch1:${query}`;
@@ -71,7 +71,7 @@ async function ytSearch(query) {
         'dump-json': true,
         'no-playlist': true,
         quiet: true,
-        'extractor-args': 'youtube:player_client=android_embedded'
+        'extractor-args': 'youtube:player_client=android'
     });
     if (!info || !info.id) throw new Error('Aucun résultat trouvé.');
     return {
