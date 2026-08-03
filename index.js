@@ -115,26 +115,33 @@ client.on('guildMemberAdd', async (member) => {
         }, 5 * 60 * 1000);
     }
 
-    // ── Bienvenue (Désactivé Temporairement) ───────────────────────────────────
-    /*
-    const visitorRole = guild.roles.cache.find(r => r.name.toLowerCase().includes('visiteur'));
-    if (visitorRole) await member.roles.add(visitorRole).catch(() => {});
+    // ── Bienvenue dans le salon ─────────────────────────────────────────────────
+    const bienvenueChannel = guild.channels.cache.find(c => c.name === BIENVENUE_CHANNEL_NAME);
+    if (bienvenueChannel) {
+        const embed = new EmbedBuilder()
+            .setColor('#5865f2')
+            .setTitle(`👋 Bienvenue sur UXDER, ${member.user.username} !`)
+            .setDescription([
+                `# Bienvenue <@${member.id}> ! 🎉`,
+                ``,
+                `> 📜 Lis bien les règles du serveur`,
+                `> 💬 Présente-toi dans le bon salon`,
+                `> 🎁 Profite de tous nos salons !`,
+            ].join('\n'))
+            .addFields(
+                { name: '👥 Membre', value: `**#${guild.memberCount}**`, inline: true },
+                { name: '📅 Compte créé', value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`, inline: true }
+            )
+            .setFooter({ text: 'UXDER Community • Bienvenue parmi nous !' })
+            .setTimestamp();
 
-    const embed = new EmbedBuilder()
-        .setColor('#f48fb1')
-        .setTitle(`🌸 Bienvenue sur UXDER, ${member.user.username} !`)
-        .setDescription(`Hey <@${member.id}> ! On est super contents de t'accueillir parmi nous ! 🎉\n\n**Pour accéder au serveur :**\nRends-toi dans le salon <#1532912448384925767> (Bienvenue) et clique sur le bouton de vérification.`)
-        .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
-        .addFields({ name: '👥 Tu es le membre', value: `**#${guild.memberCount}**`, inline: true })
-        .setFooter({ text: 'UXDER Community' })
-        .setTimestamp();
+        await bienvenueChannel.send({ content: `<@${member.id}>`, embeds: [embed] }).catch(() => {});
+    }
 
-    await member.send({ embeds: [embed] }).catch(() => {});
-    */
-
-    // Nouveau système temporaire : tout le monde a accès directement
+    // Rôle membre automatique
     await member.roles.add(MEMBER_ROLE_ID).catch(() => {});
 });
+
 
 // ─── COMMANDES TEXTE (Admin seulement) ────────────────────────────────────────
 client.on('messageCreate', async (message) => {
