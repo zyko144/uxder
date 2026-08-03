@@ -9,6 +9,9 @@ const path = require('path');
 const express = require('express');
 const { spawn } = require('child_process');
 const ytdlpExec = require('yt-dlp-exec');
+const YouTubeSR = require('youtube-sr').default;
+const fetch = require('isomorphic-unfetch');
+const { getTracks, getPreview } = require('spotify-url-info')(fetch);
 const {
     joinVoiceChannel, createAudioPlayer, createAudioResource,
     AudioPlayerStatus, VoiceConnectionStatus, entersState, StreamType
@@ -23,58 +26,85 @@ process.env.FFMPEG_PATH = ffmpegStatic;
 const musicQueues = new Map();
 
 // Rechercher une vidéo YouTube via yt-dlp-exec (gère le binaire auto sur tous les OS)
+// Rechercher une vidéo YouTube via youtube-sr (plus rapide et anti-429)
 async function ytSearch(query) {
     const isUrl = /^https?:\/\//.test(query);
-    const target = isUrl ? query : `ytsearch1:${query}`;
-    const info = await ytdlpExec(target, {
-        'dump-json': true,
-        'no-playlist': true,
-        quiet: true
-    });
-    if (!info || !info.id) throw new Error('Aucun résultat trouvé.');
+    let video;
+    if (isUrl) {
+        video = await YouTubeSR.getVideo(query).catch(() => null);
+    } else {
+        const results = await YouTubeSR.search(query, { limit: 1 });
+        video = results[0];
+    }
+    
+    if (!video || !video.id) throw new Error('Aucun résultat trouvé.');
+    
     return {
-        title: info.title || 'Titre inconnu',
-        url: `https://www.youtube.com/watch?v=${info.id}`,
-        thumbnail: info.thumbnail || null,
-        duration: info.duration ? formatDuration(info.duration) : '?',
-        author: info.uploader || info.channel || 'Inconnu',
-        id: info.id
+        title: video.title || 'Titre inconnu',
+        url: `https://www.youtube.com/watch?v=${video.id}`,
+        thumbnail: video.thumbnail?.url || null,
+        duration: video.durationFormatted || '?',
+        author: video.channel?.name || 'Inconnu',
+        id: video.id
     };
 }
 
-// Rechercher une playlist Spotify ou YouTube via yt-dlp-exec
+// Rechercher une playlist Spotify ou YouTube
 async function ytSearchPlaylist(url) {
-    // Pour les playlists, on doit utiliser spawn car yt-dlp-exec ne supporte pas --flat-playlist en JSON multi-ligne
-    return new Promise((resolve, reject) => {
-        const proc = ytdlpExec.exec(url, {
-            'flat-playlist': true,
-            'dump-json': true,
-            quiet: true
-        });
-        let out = '';
-        proc.stdout.on('data', d => out += d.toString());
-        proc.on('close', () => {
-            const lines = out.trim().split('\n').filter(Boolean);
-            if (!lines.length) return reject(new Error('Playlist introuvable ou vide.'));
-            const tracks = [];
-            for (const line of lines) {
+    const isSpotify = /spotify\.com\/(playlist|album)/.test(url);
+    const tracks = [];
+    
+    if (isSpotify) {
+        try {
+            const spotifyTracks = await getTracks(url);
+            if (!spotifyTracks || !spotifyTracks.length) throw new Error('Playlist vide.');
+            
+            // Pour ne pas bloquer trop longtemps, on cherche les 5 premières tout de suite
+            // (Dans un bot de prod complexe, on ferait ça en asynchrone progressif)
+            const maxToLoad = Math.min(spotifyTracks.length, 50); // Limite à 50 pour éviter le spam API
+            for (let i = 0; i < maxToLoad; i++) {
+                const t = spotifyTracks[i];
+                const query = `${t.artist || t.artists?.[0]?.name || ''} ${t.name}`;
                 try {
-                    const info = JSON.parse(line);
-                    if (info.id) tracks.push({
-                        title: info.title || 'Titre inconnu',
-                        url: info.url?.startsWith('http') ? info.url : `https://www.youtube.com/watch?v=${info.id}`,
-                        thumbnail: info.thumbnail || null,
-                        duration: info.duration ? formatDuration(info.duration) : '?',
-                        author: info.uploader || info.channel || 'Inconnu',
-                        id: info.id
-                    });
-                } catch(_) {}
+                    const ytRes = await YouTubeSR.search(query, { limit: 1 });
+                    if (ytRes && ytRes[0]) {
+                        tracks.push({
+                            title: ytRes[0].title,
+                            url: `https://www.youtube.com/watch?v=${ytRes[0].id}`,
+                            thumbnail: ytRes[0].thumbnail?.url || null,
+                            duration: ytRes[0].durationFormatted || '?',
+                            author: ytRes[0].channel?.name || 'Inconnu',
+                            id: ytRes[0].id
+                        });
+                    }
+                } catch(e) {}
             }
-            if (!tracks.length) return reject(new Error('Aucune piste trouvée dans la playlist.'));
-            resolve(tracks);
-        });
-        proc.on('error', e => reject(e));
-    });
+        } catch(e) {
+            throw new Error('Impossible de lire la playlist Spotify. ' + e.message);
+        }
+    } else {
+        try {
+            const playlist = await YouTubeSR.getPlaylist(url);
+            if (!playlist || !playlist.videos.length) throw new Error('Playlist vide.');
+            const maxToLoad = Math.min(playlist.videos.length, 50);
+            for (let i = 0; i < maxToLoad; i++) {
+                const v = playlist.videos[i];
+                tracks.push({
+                    title: v.title,
+                    url: `https://www.youtube.com/watch?v=${v.id}`,
+                    thumbnail: v.thumbnail?.url || null,
+                    duration: v.durationFormatted || '?',
+                    author: v.channel?.name || 'Inconnu',
+                    id: v.id
+                });
+            }
+        } catch (e) {
+            throw new Error('Impossible de lire la playlist YouTube. Assure-toi qu\'elle est publique.');
+        }
+    }
+    
+    if (!tracks.length) throw new Error('Aucune piste trouvée dans la playlist.');
+    return tracks;
 }
 
 // Créer un stream audio depuis un ID YouTube via yt-dlp-exec
