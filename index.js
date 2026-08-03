@@ -1001,8 +1001,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
                 .setColor('#ff73fa')
                 .setTitle('✨ 𝐍𝐎𝐔𝐕𝐄𝐀𝐔 𝐁𝐎𝐎𝐒𝐓 𝐃𝐄 𝐒𝐄𝐑𝐕𝐄𝐔𝐑 ✨')
                 .setDescription(`Merci infiniment <@${newMember.id}> pour ton boost ! 💖\nGrâce à toi, le serveur franchit un nouveau palier !`)
-                .setImage('https://i.imgur.com/KqWkH0s.png') // Ligne de séparation
-                .setThumbnail('https://files.catbox.moe/ukmrb3.png') // Icône nitro
+                .setImage('https://files.catbox.moe/30cqlf.png') // L'image de boost du joueur
                 .setFooter({ text: 'UXDER Community • Merci de ton soutien !' })
                 .setTimestamp();
             
