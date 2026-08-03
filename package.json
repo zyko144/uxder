@@ -16,6 +16,7 @@
   "type": "commonjs",
   "dependencies": {
     "@discord-player/extractor": "^7.2.0",
+    "@snazzah/davey": "^0.1.12",
     "@supabase/supabase-js": "^2.111.0",
     "discord-player": "^7.2.0",
     "discord-player-youtubei": "^2.0.0",

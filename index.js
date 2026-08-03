@@ -116,6 +116,17 @@ player.events.on('playerError', (queue, error) => {
     queue.metadata.channel.send('❌ Erreur lors de la lecture. On passe à la suivante !').catch(() => {});
 });
 
+// Forcer selfDeaf=false dès que le bot rejoint un vocal (fix sourdine)
+player.events.on('connection', (queue) => {
+    const voiceConnection = queue.connection;
+    if (voiceConnection && voiceConnection.joinConfig) {
+        voiceConnection.joinConfig.selfDeaf = false;
+    }
+    // Force via guild voice state
+    queue.guild.members.me?.voice?.setDeaf(false).catch(() => {});
+    queue.guild.members.me?.voice?.setMute(false).catch(() => {});
+});
+
 // Gestionnaire d'erreur global
 client.on('error', (err) => { console.error('❌ Erreur Discord Client:', err.message); });
 process.on('unhandledRejection', (reason) => { console.error('❌ Unhandled Rejection:', reason?.message || reason); });
